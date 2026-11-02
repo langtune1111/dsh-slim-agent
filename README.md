@@ -123,29 +123,41 @@
 
 ## 📦 安装与使用教程 (Installation Guide)
 
-本项目支持 **npm 在线安装**、**GitHub Releases 离线包安装** 与 **源码克隆** 三种方式，用户可根据自身网络条件灵活选用：
+### ⭐ 推荐安装方式（零门槛：直接把网址发给 Harness 助手）
 
-### 方式 1：npm 在线下载安装（推荐）
-直接通过 DSH CLI 安装发布在 npm 上的包：
+您**完全不需要手动打开终端敲命令行**！直接在 DeepSeek Harness (DSH) 客户端的任意对话框中，把本仓库网址复制发送给 AI 助手：
+
+> **“帮我安装这个插件：https://github.com/langtune1111/dsh-slim-agent”**
+
+AI 助手收到后会自动调用 DSH 内部插件管理工具自动完成下载、装配与注册，并提示您重启 DSH，全流程一键搞定！
+
+---
+
+### 🛠️ 备选安装方式（命令行与离线场景）
+
+如果您习惯通过命令行或处于网络受限环境，亦可选用以下方式：
+
+#### 方式 A：通过 DSH CLI 命令行安装
+在任意终端（PowerShell 或 Bash）中直接运行：
 ```bash
+# 推荐：直接通过 GitHub 仓库源一键添加
+dsh plugin add github:langtune1111/dsh-slim-agent
+
+# 或者通过 npm 包名添加
 dsh plugin add dsh-slim-agent
 ```
-或者使用 npm 全局安装：
-```bash
-npm install -g dsh-slim-agent
-```
 
-### 方式 2：GitHub Releases 离线包下载使用（免外网 / 零网络门槛）
-适合国内无外网连接或不想配置 npm 镜像的用户：
-1. 前往 GitHub 仓库的 Releases 页面：
+#### 方式 B：GitHub Releases 离线包下载安装（免外网 / 零网络门槛）
+适合国内直连 GitHub 不稳定或离线环境的用户：
+1. 打开 Releases 页面：
    👉 [https://github.com/langtune1111/dsh-slim-agent/releases](https://github.com/langtune1111/dsh-slim-agent/releases)
-2. 下载预先打包的离线安装包：`dsh-slim-agent-0.1.0-beta.1.tgz`
-3. 在任意终端中使用 DSH CLI 直接安装该本地离线包：
+2. 点击下载附件中的预打包安装包：`dsh-slim-agent-0.1.0-beta.1.tgz`；
+3. 在终端中直接运行该本地离线包安装：
    ```bash
    dsh plugin add ./dsh-slim-agent-0.1.0-beta.1.tgz
    ```
 
-### 方式 3：源码 Git 克隆（开发者模式）
+#### 方式 C：源码 Git 克隆（开发者调试模式）
 ```bash
 git clone https://github.com/langtune1111/dsh-slim-agent.git
 cd dsh-slim-agent

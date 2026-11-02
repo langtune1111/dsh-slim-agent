@@ -2,13 +2,13 @@
 
 > **面向消费级显卡部署的中小参数量（1.7B–8B）、短上下文（固定 8K 及极限 4K）本地 LLM 推出的“兼具世界知识与轻量化必要工具”的 DeepSeek Harness (DSH) 插件。**
 
-[![Version: 0.1.0-beta.1](https://img.shields.io/badge/Version-0.1.0--beta.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
+[![Version: 0.1.0-beta.1](https://img.shields.io/badge/Version-0.1.0--beta.2-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![DSH Compatibility](https://img.shields.io/badge/DSH-%3E%3D0.1.7--rc.1-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
 [![Target Models](https://img.shields.io/badge/Target%20Models-1.7B%20~%208B-green.svg)](https://lmstudio.ai/)
 [![Zero External Dependencies](https://img.shields.io/badge/Dependencies-Zero%20NPM%20Deps-brightgreen.svg)]()
 
-> ⚠️ **测试版声明 (ver 0.1.0-beta.1)**：当前构筑为首个公开测试候选版（Beta）。核心功能与基准指标已在本地 LM Studio（LFM-3 1.7B / Qwen3.5 4B）环境下跑通实测，但**尚未经过更多复杂硬件、跨平台多设备环境的充分验证**。欢迎大家测试并反馈 Issue！
+> ⚠️ **测试版声明 (ver 0.1.0-beta.2)**：当前构筑为首个公开测试候选版（Beta）。核心功能与基准指标已在本地 LM Studio（LFM-3 1.7B / Qwen3.5 4B）环境下跑通实测，但**尚未经过更多复杂硬件、跨平台多设备环境的充分验证**。欢迎大家测试并反馈 Issue！
 
 ---
 
@@ -151,10 +151,10 @@ dsh plugin add dsh-slim-agent
 适合国内直连 GitHub 不稳定或离线环境的用户：
 1. 打开 Releases 页面：
    👉 [https://github.com/langtune1111/dsh-slim-agent/releases](https://github.com/langtune1111/dsh-slim-agent/releases)
-2. 点击下载附件中的预打包安装包：`dsh-slim-agent-0.1.0-beta.1.tgz`；
+2. 点击下载附件中的预打包安装包：`dsh-slim-agent-0.1.0-beta.2.tgz`；
 3. 在终端中直接运行该本地离线包安装：
    ```bash
-   dsh plugin add ./dsh-slim-agent-0.1.0-beta.1.tgz
+   dsh plugin add ./dsh-slim-agent-0.1.0-beta.2.tgz
    ```
 
 #### 方式 C：源码 Git 克隆（开发者调试模式）
@@ -207,6 +207,50 @@ node benchmark/run-benchmark.mjs
 
 ---
 
+---
+
+## ✅ 已验证可用形态与排障手册 (verified on DSH desktop 0.1.2)
+
+`0.1.0-beta.2` 起，本插件采用**已在真实桌面版上跑通**的注册形态。以下每条都是实测踩出来的坑，照抄即用：
+
+### 1. 预设必须写在 home 补丁里
+只有 `~/.dsh/cordis.patch.yml` 中的 `@deepseek-ai/dsh-agent-preset` **声明行**会出现在模式选择器。
+- ❌ 运行时 `agentPresets.register()`：注册成功但不显示（对照插件 dsh-heartbeat 亦是如此）
+- ❌ 只放 `~/.dsh/.agent-presets/<id>/` 目录：健康也不显示
+- ✅ home 补丁声明行：正常显示
+
+### 2. persona 必须用 `prefix` 键
+```yaml
+- id: persona
+  name: "@deepseek-ai/dsh-persona"
+  config:
+    prefix: |-          # ✅ 正确
+      ...
+```
+用 `text:` 会被**静默丢弃**，整条预设连带消失，且列表里不会报错。
+
+### 3. 自定义插件行必须单文件、零相对导入
+```yaml
+- id: slim-core
+  name: file:///C:/Users/<you>/.dsh/.agent-presets/_slim-code/core.mjs
+```
+`preset-core.mjs` 只 import `node:` 内建模块；跨文件 `./lib/*.mjs` 的相对导入在预设作用域里解析失败。
+
+### 4. 绝不重复注册已有工具名
+`@deepseek-ai/dsh-tool-fs` 已经提供 `read` / `write` / `edit`。若你的模块再注册同名工具，DSH 会**抛异常并丢弃整条预设**（表现仍是"列表里没有"）。
+本插件的核心只注册 `bash` / `web_search` / `task_complete` / `subagent`，其余交给 tool-fs。
+
+### 5. 修改后必须重启进程
+补丁树在进程启动时组装。改完 `cordis.patch.yml` 要**完全退出 DSH**（含托盘）再开，新会话才能看到新模式。
+
+### 排障对照表
+
+| 现象 | 最可能原因 |
+|---|---|
+| 模式列表里完全没有 | 声明写在了 bundle/profile 层而非 home 层 |
+| 声明在但模式不出现 | `persona` 用了 `text`；或插件行有重复工具名；或模块有相对导入 |
+| 出现了但点进去报错 | 预设内某个插件行 inject 的服务在当前组合里不存在 |
+| 改了没反应 | 未重启进程；或存在重复 id 的声明块 |
 ## 🙏 致谢与鸣谢 (Acknowledgments)
 
 本项目在设计与落地过程中，得到了开源社区与前沿 AI 技术的深度启发与支持，特别鸣谢：

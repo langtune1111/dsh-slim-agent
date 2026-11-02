@@ -1,66 +1,65 @@
 {
-  "name": "dsh-slim-agent",
-  "version": "0.1.0-beta.1",
-  "description": "面向消费级显卡部署的中小模型（1.7B-8B）：在 8K 上下文硬约束下，兼具免 Key 联网世界知识与必要代码工具，窄主宽子隔离，可调并发防 OOM，抗插件污染。(Beta 测试版，未经过多环境多设备全面验证)",
-  "type": "module",
-  "main": "index.js",
-  "scripts": {
-    "test": "node --test \"tests/*.test.mjs\""
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/langtune1111/dsh-slim-agent.git"
-  },
-  "homepage": "https://github.com/langtune1111/dsh-slim-agent#readme",
-  "bugs": {
-    "url": "https://github.com/langtune1111/dsh-slim-agent/issues"
-  },
-  "exports": {
-    ".": "./index.js",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "index.js",
-    "cordis.patch.yml",
-    "lib",
-    "benchmark",
-    "README.md",
-    "LICENSE"
-  ],
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "deepseek-harness",
-    "slim-agent",
-    "8k",
-    "web-search",
-    "subagent",
-    "small-llm"
-  ],
-  "license": "MIT",
-  "engines": {
-    "dsh": ">=0.1.7-rc.1",
-    "node": ">=20"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "cordis.patch.yml"
-    }
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-tools": "*",
-    "@deepseek-ai/schemastery": "*"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-tools": {
-      "optional": true
-    },
-    "@deepseek-ai/schemastery": {
-      "optional": true
-    }
-  }
+    "name":  "dsh-slim-agent",
+    "version":  "0.1.0-beta.2",
+    "description":  "面向消费级显卡部署的中小模型（1.7B-8B）：8K 上下文下兼具免 Key 联网世界知识与必要代码工具，6 工具白名单，窄主宽子隔离，可调并发防 OOM。(Beta 0.1.0-beta.2，已验证可在 DSH 桌面版加载)",
+    "type":  "module",
+    "main":  "index.js",
+    "scripts":  {
+                    "test":  "node --test \"tests/*.test.mjs\""
+                },
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/langtune1111/dsh-slim-agent.git"
+                   },
+    "homepage":  "https://github.com/langtune1111/dsh-slim-agent#readme",
+    "bugs":  {
+                 "url":  "https://github.com/langtune1111/dsh-slim-agent/issues"
+             },
+    "exports":  {
+                    ".":  "./index.js",
+                    "./package.json":  "./package.json"
+                },
+    "files":  [
+                  "index.js",
+                  "preset-core.mjs",
+                  "cordis.patch.yml",
+                  "README.md",
+                  "LICENSE"
+              ],
+    "keywords":  [
+                     "dsh",
+                     "dsh-plugin",
+                     "deepseek-harness",
+                     "slim-agent",
+                     "8k",
+                     "web-search",
+                     "subagent",
+                     "small-llm"
+                 ],
+    "license":  "MIT",
+    "engines":  {
+                    "dsh":  "\u003e=0.1.7-rc.1",
+                    "node":  "\u003e=20"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "cordis.patch.yml"
+                           }
+            },
+    "peerDependencies":  {
+                             "@deepseek-ai/cordis":  "*",
+                             "@deepseek-ai/dsh-tools":  "*",
+                             "@deepseek-ai/schemastery":  "*"
+                         },
+    "peerDependenciesMeta":  {
+                                 "@deepseek-ai/cordis":  {
+                                                             "optional":  true
+                                                         },
+                                 "@deepseek-ai/dsh-tools":  {
+                                                                "optional":  true
+                                                            },
+                                 "@deepseek-ai/schemastery":  {
+                                                                  "optional":  true
+                                                              }
+                             }
 }

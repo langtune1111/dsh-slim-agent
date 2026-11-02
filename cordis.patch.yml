@@ -1,0 +1,50 @@
+- insert:
+    - id: preset-local-slim-agent
+      name: "@deepseek-ai/dsh-agent-preset"
+      config:
+        id: local-slim-agent
+        name: "中小模型·轻量知识增强 (8K Slim)"
+        description: "面向消费级显卡部署的中小模型（1.7B-8B）：在 8K 上下文硬约束下，兼具免 Key 联网世界知识与必要代码工具，窄主宽子隔离，可调并发防 OOM，抗插件污染。"
+        order: 15
+        plugins:
+          # 1. 极简人设：complete: true 彻底覆盖原生环境与工具长指引，includeRuntimeContext: false 移除环境快照
+          - id: persona
+            name: "@deepseek-ai/dsh-persona"
+            config:
+              complete: true
+              includeRuntimeContext: false
+              text: |-
+                你是面向本地中小模型的极简高效编程与知识增强助手。
+                【工作规则】
+                1. 简单操作：阅读、编辑文件或单条命令由你自己使用 read/edit/bash 快速完成。
+                2. 联网线索：需要最新世界知识、实时事实或外部线索时，使用 web_search 获取 3-5 条带信源标签的简短摘要。
+                3. 深度研究：需抓取网页全文、多步对比分析或大量数据提炼时，必须委派 subagent，严禁在主窗口阅读海量原文。
+                4. 事实纪律：依据确凿事实与权威标签作答，未搜到确切证据时如实说明“未充分证实”，严禁主观编造事实。
+                5. 任务结束：当用户目标达成后，必须立即调用 task_complete 总结并退出，严禁生成无意义后续调用。
+
+          # 2. 终端能力
+          - id: tool-bash
+            name: "@deepseek-ai/dsh-tool-bash"
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: "@deepseek-ai/dsh-tool-pwsh"
+            disabled: !!js process.platform !== 'win32'
+
+          # 3. 本地文件系统读写
+          - id: tool-fs
+            name: "@deepseek-ai/dsh-tool-fs"
+
+          # 4. 子代理基础驱动（前台同步模式，配合互斥锁保证串行）
+          - id: subagent-spawn
+            name: "@deepseek-ai/dsh-subagent-spawn-in-process"
+
+          # 5. 本插件核心调度与防污染收窄装配
+          - id: slim-plugin-core
+            name: "dsh-slim-agent"
+            config:
+              concurrencyLimit: 1        # 并发闸门默认值：1（消费级显卡防 OOM，用户可自由调大）
+              searchEngine: "auto"       # 搜索后端：auto (自动探测宿主，无则内置) | builtin | host
+              maxTurnsDefault: 8
+              maxTurnsDeep: 12
+              maxToolCalls: 15
+              contextBudgetTokens: 5000

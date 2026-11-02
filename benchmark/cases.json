@@ -1,0 +1,76 @@
+{
+  "benchmark_suite": "Cross-Context Benchmark (4K / 8K / 32K): Slim Agent vs Pi Agent vs DSH Minimal vs DSH Standard",
+  "version": "2.0.0",
+  "models": ["LFM-3-1.7B-Q5_K_M", "Qwen3.5-4B-Q4_K_M"],
+  "context_tiers": {
+    "tier_4k": 4096,
+    "tier_8k": 8192,
+    "tier_32k": 32768
+  },
+  "evaluated_modes": [
+    {
+      "id": "dsh-slim-agent",
+      "name": "4B/1.7B 极简知识增强模式 (本插件)",
+      "tools_count": 6,
+      "hermetic_isolation": true,
+      "search_type": "内置+宿主双模 (带信源染色)"
+    },
+    {
+      "id": "pi-agent",
+      "name": "Pi Agent (单层平铺模式)",
+      "tools_count": "15+ (受外部插件污染)",
+      "hermetic_isolation": false,
+      "search_type": "长正文平铺"
+    },
+    {
+      "id": "dsh-minimal",
+      "name": "DSH 原生极简模式 (minimal-v3)",
+      "tools_count": 5,
+      "hermetic_isolation": "部分",
+      "search_type": "无搜索功能"
+    },
+    {
+      "id": "dsh-standard",
+      "name": "DSH 原生标准模式 (Standard)",
+      "tools_count": "30+",
+      "hermetic_isolation": false,
+      "search_type": "全功能带抓取"
+    }
+  ],
+  "cases": [
+    {
+      "id": "CASE_A_LOCAL_CODE_OPS",
+      "category": "极限 4K/8K 本地代码重构与单测",
+      "title": "极限小上下文下快速修复函数并运行测试",
+      "prompt": "请读取 ./src/utils.js 中的 formatDate 函数，将两位的年份显示修改为四位全称 YYYY，在终端中执行 npm test 验证单测通过，最后调用 task_complete 总结并退出。",
+      "eval_criteria": {
+        "expected_tools": ["read", "edit", "bash", "task_complete"],
+        "min_context_required": 1500,
+        "success_definition": "4K/8K 均无溢出、测试通过、终止原语成功阻断循环"
+      }
+    },
+    {
+      "id": "CASE_B_REALTIME_WORLD_KNOWLEDGE",
+      "category": "8K 时效性世界知识检索与信源甄别 (see-world 理念)",
+      "title": "最新软件版本发布信息查询与信源权威度校验",
+      "prompt": "请联网查询当前 Node.js 最新的 Active LTS 版本的具体版本号、代号与主要变更点。要求明确给出权威官方信源标签，未证实的事实不得脑补猜测。",
+      "eval_criteria": {
+        "expected_tools": ["web_search", "task_complete"],
+        "search_output_max_tokens": 250,
+        "success_definition": "正确命中权威官方信源 [官方/权威]、版本信息真实、附时间戳、无大段 HTML 污染"
+      }
+    },
+    {
+      "id": "CASE_C_COMPLEX_DEEP_RESEARCH",
+      "category": "8K/32K 跨多源架构优缺点复合深度调研",
+      "title": "多源架构选型分析与证据链提炼",
+      "prompt": "我们需要评估 Fastify 与 Express 在现代高并发微服务场景下的选型对比。请委派子代理深挖官方文档与社区实践，输出包含【已确认结论 (附证据来源)】、【未验证部分】及【建议下一步】的决策报告。",
+      "eval_criteria": {
+        "expected_tools": ["subagent", "task_complete"],
+        "subagent_tools_used": ["web_search", "web_fetch", "bash"],
+        "main_context_pollution": "0 网页正文泄入",
+        "success_definition": "子代理独立调研并提炼出四元组证据链，主窗口严格在预算内平稳收官"
+      }
+    }
+  ]
+}

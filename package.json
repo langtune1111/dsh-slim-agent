@@ -1,7 +1,7 @@
 {
   "name": "dsh-slim-agent",
-  "version": "0.1.0",
-  "description": "面向消费级显卡部署的中小模型（1.7B-8B）：在 8K 上下文硬约束下，兼具免 Key 联网世界知识与必要代码工具，窄主宽子隔离，可调并发防 OOM，抗插件污染。",
+  "version": "0.1.0-beta.1",
+  "description": "面向消费级显卡部署的中小模型（1.7B-8B）：在 8K 上下文硬约束下，兼具免 Key 联网世界知识与必要代码工具，窄主宽子隔离，可调并发防 OOM，抗插件污染。(Beta 测试版，未经过多环境多设备全面验证)",
   "type": "module",
   "main": "index.js",
   "scripts": {

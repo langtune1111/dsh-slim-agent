@@ -2,10 +2,13 @@
 
 > **面向消费级显卡部署的中小参数量（1.7B–8B）、短上下文（固定 8K 及极限 4K）本地 LLM 推出的“兼具世界知识与轻量化必要工具”的 DeepSeek Harness (DSH) 插件。**
 
+[![Version: 0.1.0-beta.1](https://img.shields.io/badge/Version-0.1.0--beta.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![DSH Compatibility](https://img.shields.io/badge/DSH-%3E%3D0.1.7--rc.1-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
 [![Target Models](https://img.shields.io/badge/Target%20Models-1.7B%20~%208B-green.svg)](https://lmstudio.ai/)
 [![Zero External Dependencies](https://img.shields.io/badge/Dependencies-Zero%20NPM%20Deps-brightgreen.svg)]()
+
+> ⚠️ **测试版声明 (ver 0.1.0-beta.1)**：当前构筑为首个公开测试候选版（Beta）。核心功能与基准指标已在本地 LM Studio（LFM-3 1.7B / Qwen3.5 4B）环境下跑通实测，但**尚未经过更多复杂硬件、跨平台多设备环境的充分验证**。欢迎大家测试并反馈 Issue！
 
 ---
 
@@ -54,7 +57,7 @@
    - 插件内置 `lib/builtin-search.mjs`，仅使用 Node.js 18+ 原生 `fetch`，采用 Wikipedia OpenSearch + DuckDuckGo 双擎轮询；
    - **在任何一台没有装任何额外插件的干净 DSH 环境上，本插件均可 100% 独立完成网络搜索与世界知识获取**。
 2. **宿主搜索无缝升级（自动探测）**：
-   - 默认模式为 `searchEngine: "auto"`：自动检测宿主环境是否已装 `@copylee/dsh-free-search` 等系统级搜索服务。若有，则优先复用宿主高级引擎；若无或调用失败，自动秒级降级至内置引擎。
+   - 默认模式为 `searchEngine: "auto"`：自动检测宿主环境是否已装 `@copylee/dsh-free-search` 等系统级搜索服务。若有，则优先复用宿主高级引擎；若无或宿主调用异常，秒级自动降级至内置引擎。
 3. **用户自由配置切换**：
    - 用户可在配置中自由指定 `searchEngine: "auto" | "builtin" | "host"`。
 
@@ -71,7 +74,7 @@
 | **DSH 原生标准模式 (Standard)** | ❌ **开局直接爆满 (100% 溢出)**<br>初始开销 >4,500 tok，无法启动 | ⚠️ **高危 (溢出率 80%)**<br>留存空间 <2,500 tok，2 轮对话溢出 | ✅ **可运行**<br>留存空间充裕，但 30+ 工具严重干扰 4B 认知 | 全功能开发首选，但绝不适合本地小显存与短上下文模型 |
 | **Pi Agent (单层平铺模式)** | ❌ **无法运行 (100% 溢出)**<br>初始开销 ~2,800 tok，1 次搜索打满 | ❌ **高溢出率 (75%)**<br>大段正文平铺，3 轮即死 | ⚠️ **易受噪声干扰**<br>长上下文下小模型注意力迷航 | 单代理平铺架构在短窗口下极易被长正文冲垮 |
 | **DSH 原生极简模式 (minimal-v3)** | ⚠️ **勉强存活 (溢出率 25%)**<br>初始 ~950 tok，留存 ~3,100 tok | ✅ **高可用 (溢出率 10%)**<br>留存 ~7,200 tok | ✅ **稳定运行**<br>但**彻底丧失世界知识与深度调研能力** | 纯粹的代码与文件操作，面对时效性问题严重幻觉 |
-| **本插件 (dsh-slim-agent)** | ✅ **极限存活 (溢出率 <12%)**<br>初始 ~1,060 tok，留存 ~3,035 tok | ✅ **黄金状态 (溢出率 <5%)**<br>留存 ~7,130 tok (87.0%) | ✅ **极致高效**<br>TTFT 提速 60%，显存比标准模式省 40% | **兼具极简轻量与世界知识，自适应各阶上下文** |
+| **本插件 (dsh-slim-agent)** | ✅ **极限存活 (溢出率 <12%)**<br>初始 ~1,060 tok，留存 **3,035 tok (74.1%)** | ✅ **黄金状态 (溢出率 <5%)**<br>留存 **7,131 tok (87.0%)** | ✅ **极致高效**<br>TTFT 提速 60%，显存比标准模式省 40% | **兼具极简轻量与世界知识，自适应各阶上下文** |
 
 ### 2. 任务完成度与准确率实测表 (编程任务 vs 世界知识任务)
 
@@ -118,35 +121,56 @@
 
 ---
 
-## 📦 安装与使用
+## 📦 安装与使用教程 (Installation Guide)
 
-### 1. 安装插件
-克隆本仓库到 DSH 的插件目录，或通过 DSH CLI 安装：
+本项目支持 **npm 在线安装**、**GitHub Releases 离线包安装** 与 **源码克隆** 三种方式，用户可根据自身网络条件灵活选用：
 
+### 方式 1：npm 在线下载安装（推荐）
+直接通过 DSH CLI 安装发布在 npm 上的包：
 ```bash
-# 方式 A：通过 DSH CLI 直接添加
-dsh plugin add ./plugins-src/dsh-slim-agent
-
-# 方式 B：通过 npm 规范全局链接
-cd plugins-src/dsh-slim-agent
-npm link
+dsh plugin add dsh-slim-agent
+```
+或者使用 npm 全局安装：
+```bash
+npm install -g dsh-slim-agent
 ```
 
-### 2. 启用模式
-安装完成后重启 DSH，在会话界面左上角的 **Agent Preset (模式)** 下拉列表中，选择：
-> **中小模型·轻量知识增强 (8K Slim)**
+### 方式 2：GitHub Releases 离线包下载使用（免外网 / 零网络门槛）
+适合国内无外网连接或不想配置 npm 镜像的用户：
+1. 前往 GitHub 仓库的 Releases 页面：
+   👉 [https://github.com/langtune1111/dsh-slim-agent/releases](https://github.com/langtune1111/dsh-slim-agent/releases)
+2. 下载预先打包的离线安装包：`dsh-slim-agent-0.1.0-beta.1.tgz`
+3. 在任意终端中使用 DSH CLI 直接安装该本地离线包：
+   ```bash
+   dsh plugin add ./dsh-slim-agent-0.1.0-beta.1.tgz
+   ```
 
-### 3. 可选参数微调 (`cordis.patch.yml`)
-可在插件配置中灵活调节各项参数：
-```yaml
-slim-plugin-core:
-  concurrencyLimit: 1        # 并发闸门上限（默认 1，防显存 OOM；大显存用户可调大为 2 或 3）
-  searchEngine: "auto"       # 搜索后端：auto (自动探测宿主，无则内置) | builtin | host
-  maxTurnsDefault: 8         # 子代理默认轮次
-  maxTurnsDeep: 12           # 深度研究最大轮次上限
-  maxToolCalls: 15           # 子代理最大工具调用次数
-  contextBudgetTokens: 5000  # 子代理上下文预算（超过强制触发三段式总结软着陆）
+### 方式 3：源码 Git 克隆（开发者模式）
+```bash
+git clone https://github.com/langtune1111/dsh-slim-agent.git
+cd dsh-slim-agent
+dsh plugin add .
 ```
+
+---
+
+### 🚀 启用与配置
+
+1. **启用模式**：
+   安装完成后重启 DSH，在会话界面左上角的 **Agent Preset (模式)** 下拉列表中，直接选择：
+   > **中小模型·轻量知识增强 (8K Slim)**
+
+2. **可选参数微调 (`cordis.patch.yml`)**：
+   可在插件配置中灵活调节各项参数：
+   ```yaml
+   slim-plugin-core:
+     concurrencyLimit: 1        # 并发闸门上限（默认 1，防显存 OOM；大显存用户可调大为 2 或 3）
+     searchEngine: "auto"       # 搜索后端：auto (自动探测宿主，无则内置) | builtin | host
+     maxTurnsDefault: 8         # 子代理默认轮次
+     maxTurnsDeep: 12           # 深度研究最大轮次上限
+     maxToolCalls: 15           # 子代理最大工具调用次数
+     contextBudgetTokens: 5000  # 子代理上下文预算（超过强制触发三段式总结软着陆）
+   ```
 
 ---
 

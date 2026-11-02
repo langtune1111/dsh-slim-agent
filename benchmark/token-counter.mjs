@@ -1,173 +1,66 @@
 /**
- * token-counter.mjs — 8K/4K 上下文固定开销实测分析器 (更新 see-world 规则版)
+ * token-counter.mjs — 上下文固定开销的**估算器**
+ *
+ * ⚠️ 这不是 tokenizer 实测。这里按字符类别给出经验系数，误差通常在 ±15% 以内。
+ * 需要精确值时用 benchmark/tokenizer.mjs（走真实分词器），或直接读模型返回的 usage.prompt_tokens。
  */
 
 export function estimateTokens(text) {
-  if (!text) return 0;
-  const cjkMatches = text.match(/[\u4e00-\u9fa5]/g) || [];
-  const cjkCount = cjkMatches.length;
-  const nonCjkCount = text.length - cjkCount;
-  return Math.ceil(cjkCount * 0.8 + nonCjkCount * 0.28);
+  if (!text) return 0
+  const cjk = (String(text).match(/[\u4e00-\u9fa5]/g) || []).length
+  const ascii = String(text).length - cjk
+  return Math.ceil(cjk * 0.8 + ascii * 0.28)
 }
 
-export function computeSlimOverhead() {
-  const persona = `你是面向本地中小模型的极简高效编程与知识增强助手。
-【工作规则】
-1. 简单操作：阅读、编辑文件或单条命令由你自己使用 read/edit/bash 快速完成。
-2. 联网线索：需要最新世界知识、实时事实或外部线索时，使用 web_search 获取 3-5 条带信源标签的简短摘要。
-3. 深度研究：需抓取网页全文、多步对比分析或大量数据提炼时，必须委派 subagent，严禁在主窗口阅读海量原文。
-4. 事实纪律：依据确凿事实与权威标签作答，未搜到确切证据时如实说明“未充分证实”，严禁主观编造事实。
-5. 任务结束：当用户目标达成后，必须立即调用 task_complete 总结并退出，严禁生成无意义后续调用。`;
+/** README 里描述的那套组合，用于估算固定开销。 */
+export function slimOverheadParts() {
+  const persona = [
+    '你是面向本地中小模型的极简高效编程与知识增强助手。',
+    '1. 简单操作：阅读、编辑文件或单条命令由你自己使用 read/edit/bash 完成。',
+    '2. 联网线索：需要最新事实或外部知识时，用 web_search 取 3-5 条带来源标签的摘要。',
+    '3. 深度研究：需要读网页全文或多步比对时，委派 subagent，不要在主窗口读长文。',
+    '4. 事实纪律：依据确凿事实作答，查不到就明说“未充分证实”，不要编造。',
+    '5. 目标达成后立即调用 task_complete 收尾，不要追加无意义回复。',
+  ].join('\n')
 
+  // read / edit 由 tool-fs 提供，这里只算我们自己注册的 4 个工具
   const tools = [
-    {
-      name: "read",
-      description:
-        "Read lines from a UTF-8 text file. Specify offset (1-based line) and limit to page through large files.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "File path to read." },
-          offset: {
-            type: "integer",
-            description: "Starting line number (1-based, default: 1).",
-          },
-          limit: {
-            type: "integer",
-            description: "Maximum number of lines to return (default: 200).",
-          },
-        },
-        required: ["path"],
-      },
-    },
-    {
-      name: "edit",
-      description:
-        "Replace exact literal text in a file. old_string must match exactly once.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Target file path." },
-          old_string: {
-            type: "string",
-            description: "Exact literal text to replace.",
-          },
-          new_string: { type: "string", description: "Replacement text." },
-        },
-        required: ["path", "old_string", "new_string"],
-      },
-    },
-    {
-      name: "bash",
-      description:
-        "Execute a shell command. Use for builds, inspections, tests, or file operations.",
-      parameters: {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description: "The shell command line to execute.",
-          },
-        },
-        required: ["command"],
-      },
-    },
-    {
-      name: "web_search",
-      description:
-        "Search the web for real-time facts or external clues. Returns 3-5 concise title+snippet items. Does not fetch full page content.",
-      parameters: {
-        type: "object",
-        properties: {
-          queries: {
-            type: "array",
-            items: { type: "string" },
-            description: "1 to 3 search keywords or query strings.",
-          },
-        },
-        required: ["queries"],
-      },
-    },
-    {
-      name: "task_complete",
-      description:
-        "Explicit termination tool. Call this when the task objective is achieved to summarize outcome and prevent unnecessary follow-up loops.",
-      parameters: {
-        type: "object",
-        properties: {
-          summary: {
-            type: "string",
-            description:
-              "One to two concise sentences summarizing the completed work and final conclusion.",
-          },
-        },
-        required: ["summary"],
-      },
-    },
-    {
-      name: "subagent",
-      description:
-        "Delegate heavy research, multi-step web reading, or complex exploration to an isolated subagent. Returns only distilled conclusions.",
-      parameters: {
-        type: "object",
-        properties: {
-          task_description: {
-            type: "string",
-            description:
-              "Detailed objective, specific target and context for the subagent to investigate.",
-          },
-          constraints: {
-            type: "string",
-            description:
-              "Any boundaries, forbidden paths, or specific scope limits (optional).",
-          },
-          max_turns: {
-            type: "integer",
-            description:
-              "Turn limit for this subagent (default: 8, deep research: 12).",
-          },
-          context_budget: {
-            type: "integer",
-            description:
-              "Subagent context token budget (default: 4000, max: 6000).",
-          },
-          expected_output: {
-            type: "string",
-            description: "Expected structure or fields of the returned summary.",
-          },
-        },
-        required: ["task_description", "expected_output"],
-      },
-    },
-  ];
+    { name: 'bash', description: 'Run one shell command in the session workspace. Prefer short, single-purpose commands.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Command line to execute.' } }, required: ['command'] } },
+    { name: 'web_search', description: 'Search the web for clues. Returns up to 4 items: source-tag, title, URL, one-line snippet. Never returns page bodies.', parameters: { type: 'object', properties: { queries: { type: 'array', items: { type: 'string' }, description: '1 to 3 query strings.' } }, required: ['queries'] } },
+    { name: 'task_complete', description: 'Call exactly once when the objective is achieved: summarizes and stops further turns.', parameters: { type: 'object', properties: { summary: { type: 'string', description: 'One or two sentences: what was done and the conclusion.' } }, required: ['summary'] } },
+    { name: 'subagent', description: 'Delegate multi-page reading or deep research to an isolated child agent. Only its distilled report returns; page bodies never enter this context.', parameters: { type: 'object', properties: { task_description: { type: 'string' }, constraints: { type: 'string' }, max_turns: { type: 'integer' }, context_budget: { type: 'integer' }, expected_output: { type: 'string' } }, required: ['task_description', 'expected_output'] } },
+  ]
 
-  const personaTokens = estimateTokens(persona);
-  const toolsTokens = estimateTokens(JSON.stringify(tools));
-  const framingTokens = 120;
-  const totalOverhead = personaTokens + toolsTokens + framingTokens;
-
-  return {
-    personaTokens,
-    toolsTokens,
-    framingTokens,
-    totalOverhead,
-    availableIn4K: 4096 - totalOverhead,
-    ratioIn4K: (((4096 - totalOverhead) / 4096) * 100).toFixed(1) + "%",
-    availableIn8K: 8192 - totalOverhead,
-    ratioIn8K: (((8192 - totalOverhead) / 8192) * 100).toFixed(1) + "%",
-    availableIn32K: 32768 - totalOverhead,
-    ratioIn32K: (((32768 - totalOverhead) / 32768) * 100).toFixed(1) + "%",
-  };
+  const personaTokens = estimateTokens(persona)
+  const toolTokens = estimateTokens(JSON.stringify(tools))
+  const framingTokens = 120
+  return { personaTokens, toolTokens, framingTokens, total: personaTokens + toolTokens + framingTokens }
 }
 
-const stats = computeSlimOverhead();
-console.log("=== 8K Slim Agent 固定开销实测分析 (v2.0) ===");
-console.log(`- 系统提示词 (含 see-world 事实纪律): ~${stats.personaTokens} tokens`);
-console.log(`- 6 个核心工具 Schema 描述           : ~${stats.toolsTokens} tokens`);
-console.log(`- 通信协议与消息帧包装                : ~${stats.framingTokens} tokens`);
-console.log(`-----------------------------------------------`);
-console.log(`- 固定总开销 (Fixed Overhead)         : ~${stats.totalOverhead} tokens (目标: 1,000–1,600)`);
-console.log(`- 4K 极限窗口剩余可用                 : ~${stats.availableIn4K} tokens (${stats.ratioIn4K})`);
-console.log(`- 8K 基准窗口剩余可用                 : ~${stats.availableIn8K} tokens (${stats.ratioIn8K})`);
-console.log(`- 32K 扩展窗口剩余可用                : ~${stats.availableIn32K} tokens (${stats.ratioIn32K})`);
-console.log("===============================================");
+/** 不同上下文档位下，剩余给任务的空间（同样是估算）。 */
+export function contextBudget(totalTokens, windows = [4096, 8192, 32768]) {
+  return windows.map((window) => ({
+    window,
+    available: window - totalTokens,
+    ratio: Number((((window - totalTokens) / window) * 100).toFixed(1)),
+  }))
+}
+
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+
+const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+if (isMain) {
+  const parts = slimOverheadParts()
+  console.log('=== 固定开销估算（非 tokenizer 实测）===')
+  console.log(`persona        ~${parts.personaTokens}`)
+  console.log(`4 个自注册工具  ~${parts.toolTokens}`)
+  console.log(`协议/帧        ~${parts.framingTokens}`)
+  console.log(`合计           ~${parts.total} tokens（±15%）`)
+  console.log('')
+  for (const row of contextBudget(parts.total)) {
+    console.log(`窗口 ${row.window}: 剩余 ~${row.available} (${row.ratio}%)`)
+  }
+  console.log('')
+  console.log('注意：read/edit 由 tool-fs 提供，其 schema 也会计入固定开销，此处未统计。')
+}

@@ -1,11 +1,12 @@
 {
     "name":  "dsh-slim-agent",
-    "version":  "0.1.0-beta.2",
-    "description":  "面向消费级显卡部署的中小模型（1.7B-8B）：8K 上下文下兼具免 Key 联网世界知识与必要代码工具，6 工具白名单，窄主宽子隔离，可调并发防 OOM。(Beta 0.1.0-beta.2，已验证可在 DSH 桌面版加载)",
+    "version":  "0.2.0-beta.1",
+    "description":  "闈㈠悜娑堣垂绾ф樉鍗￠儴缃茬殑涓皬妯″瀷锛?.7B-8B锛夛細8K 涓婁笅鏂囦笅鍏煎叿鍏?Key 鑱旂綉绾跨储涓庡繀瑕佷唬鐮佸伐鍏凤紝涓讳唬鐞?6 宸ュ叿鐧藉悕鍗曘€佸瓙浠ｇ悊闅旂娣卞害鐮旂┒銆?瀹為獙鎬э紝0.2.0-beta.1)",
     "type":  "module",
     "main":  "index.js",
     "scripts":  {
-                    "test":  "node --test \"tests/*.test.mjs\""
+                    "test":  "node --test \"tests/*.test.mjs\"",
+                    "estimate":  "node benchmark/token-counter.mjs"
                 },
     "repository":  {
                        "type":  "git",
@@ -23,6 +24,7 @@
                   "index.js",
                   "preset-core.mjs",
                   "cordis.patch.yml",
+                  "benchmark",
                   "README.md",
                   "LICENSE"
               ],

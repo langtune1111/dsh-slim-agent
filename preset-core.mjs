@@ -1,41 +1,106 @@
 /**
- * slim-core.mjs — 单文件零相对依赖版核心（供预设 file:// 行挂载）
- * 6 工具 + 6 工具白名单 + 可调并发子代理调度 + 内置免 Key 搜索。
- * 只依赖 node: 内建模块，不 import 任何本地文件（规避预设作用域的相对解析问题）。
+ * preset-core.mjs — dsh-slim-agent 的唯一实现（预设作用域内挂载）
+ *
+ * 设计目标：让 1.7B–8B 本地小模型在 4K–8K 上下文里拥有接近完整 Agent 的能力。
+ * 手段：主代理只留 6 个工具；重型网页阅读与多步研究交给子代理，只回传提炼结论。
+ *
+ * 约束（均为本机实测得到，改动前请先看 README 的「已验证形态」）：
+ *  - 必须是单文件、只 import `node:` 内建模块（跨文件相对导入在预设作用域解析失败）；
+ *  - 不得注册 read/write/edit（由 @deepseek-ai/dsh-tool-fs 提供，重名会抛错并丢弃整条预设）。
+ *
+ * 配置项（写在预设声明的 config 里）：
+ *   concurrencyLimit   子代理并发上限，默认 1
+ *   searchEngine       'auto' | 'builtin' | 'host'，默认 auto
+ *   maxTurnsDefault / maxTurnsDeep / maxToolCalls
+ *   bash               'sandbox'(默认) | 'local' | 'off'
+ *   auditFile          审计日志路径，默认 <dshHome>/slim-agent-audit.jsonl
  */
 
-import { readFile, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { appendFile } from 'node:fs/promises'
 import { exec as execCb } from 'node:child_process'
 import { promisify } from 'node:util'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 const execAsync = promisify(execCb)
 
 export const name = 'dsh-slim-agent-core'
 export const inject = ['tools', 'systemPrompt']
 
+/** 主代理可见的 6 个工具。read/edit 来自 tool-fs，其余由本模块注册。 */
 const ALLOW = new Set(['read', 'edit', 'bash', 'web_search', 'task_complete', 'subagent'])
 
-/* ---------- 信源染色 ---------- */
-function classify(url) {
-  try {
-    const h = new URL(url).hostname.toLowerCase()
-    const official = ['github.com', 'nodejs.org', 'python.org', 'rust-lang.org', 'golang.org',
-      'w3.org', 'ietf.org', 'wikipedia.org', 'mozilla.org', 'microsoft.com', 'apache.org']
-    if (official.some(d => h === d || h.endsWith('.' + d)) || h.startsWith('docs.') || h.endsWith('.edu') || h.endsWith('.gov')) return '[官方/权威]'
-    const community = ['stackoverflow.com', 'stackexchange.com', 'reddit.com', 'v2ex.com', 'juejin.cn', 'zhihu.com', 'dev.to', 'csdn.net', 'cnblogs.com']
-    if (community.some(d => h === d || h.endsWith('.' + d))) return '[技术社区]'
-    return '[经验参考]'
-  } catch { return '[参考网页]' }
-}
-const stripTags = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim()
-const yearOf = (s) => { const m = String(s || '').match(/\b(202[0-9])\b/); return m ? ` (${m[1]})` : '' }
+/** local 模式下拒绝的命令模式（启发式，不是安全边界）。 */
+const DANGEROUS = [
+  /\brm\s+(-[a-zA-Z]*\s+)*\/(\s|$)/,
+  /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+[a-zA-Z]:\//i,
+  /\bformat\s+[a-zA-Z]:/i,
+  /\bmkfs(\.|\s)/i,
+  /\bshutdown\b/i,
+  /\breboot\b/i,
+  /\bdiskpart\b/i,
+  /\breg\s+delete\b/i,
+  /curl[^|]*\|\s*(sudo\s+)?(ba)?sh/i,
+  /wget[^|]*\|\s*(sudo\s+)?(ba)?sh/i,
+  /\bdd\s+if=/i,
+]
 
-/* ---------- 内置免 Key 搜索 ---------- */
-async function ddg(query, signal) {
+/* ───────────────────────────── 信源标签 ───────────────────────────── */
+
+/**
+ * 给搜索结果打上来源性质标签。
+ * 注意：这是**域名启发式**，只帮助小模型快速区分"源码/文档/百科/社区"，不构成权威性认定。
+ */
+export function classifySource(rawUrl) {
+  let host = ''
+  let path = ''
   try {
-    const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-      signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36' },
+    const u = new URL(rawUrl)
+    host = u.hostname.toLowerCase()
+    path = u.pathname
+  } catch {
+    return '[其他]'
+  }
+  const isWiki = host.endsWith('wikipedia.org') || host.endsWith('wiktionary.org')
+  if (isWiki) return '[百科]'
+
+  if (host === 'github.com' || host.endsWith('.github.com')) {
+    if (/\/(issues|pull)\//.test(path)) return '[社区讨论]'
+    if (/^\/([^/]+)\/([^/]+)\/(releases|blob|tree)/.test(path)) return '[源码仓库]'
+    return '[源码仓库]'
+  }
+  if (host === 'stackoverflow.com' || host.endsWith('.stackexchange.com') || host === 'stackexchange.com') return '[社区问答]'
+  if (['reddit.com', 'v2ex.com', 'news.ycombinator.com', 'juejin.cn', 'zhihu.com', 'dev.to', 'segmentfault.com', 'csdn.net', 'cnblogs.com'].some((d) => host === d || host.endsWith('.' + d))) return '[社区讨论]'
+  if (host.startsWith('docs.') || host.startsWith('developer.') || /\/(docs|documentation|manual|reference)\//.test(path)) return '[文档站]'
+  if (host.endsWith('.gov') || host.endsWith('.edu')) return '[机构站]'
+  return '[其他]'
+}
+
+/** 从文本里取最近年份，仅作为"线索"，不是发布时间。 */
+export function guessYear(text) {
+  const matches = String(text || '').match(/\b(20[2-3][0-9])\b/g)
+  if (!matches || matches.length === 0) return ''
+  return ` (${matches[matches.length - 1]})`
+}
+
+/* ───────────────────────────── 搜索 ───────────────────────────── */
+
+const stripTags = (s) =>
+  String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+
+async function searchDuckDuckGo(query, signal) {
+  try {
+    const res = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), {
+      signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36' },
     })
     if (!res.ok) return []
     const html = await res.text()
@@ -44,187 +109,379 @@ async function ddg(query, signal) {
     let m
     while ((m = re.exec(html)) !== null && out.length < 5) {
       let href = m[1]
-      if (href.includes('uddg=')) { try { href = decodeURIComponent(new URL(href, 'https://html.duckduckgo.com').searchParams.get('uddg') || href) } catch {} }
-      const title = stripTags(m[2]); const snippet = stripTags(m[3])
+      if (href.includes('uddg=')) {
+        try {
+          href = decodeURIComponent(new URL(href, 'https://html.duckduckgo.com').searchParams.get('uddg') || href)
+        } catch {}
+      }
+      const title = stripTags(m[2])
+      const snippet = stripTags(m[3])
       if (title && href) out.push({ title, snippet, url: href })
     }
     return out
-  } catch { return [] }
-}
-async function wiki(query, signal) {
-  try {
-    const en = /^[a-zA-Z0-9\s._-]+$/.test(query)
-    const res = await fetch(`https://${en ? 'en' : 'zh'}.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=4&namespace=0&format=json`, { signal })
-    if (!res.ok) return []
-    const d = await res.json(); const t = d[1] || [], s = d[2] || [], u = d[3] || []
-    return t.map((_, i) => ({ title: t[i], snippet: s[i] || '维基百科词条', url: u[i] })).filter(x => x.title && x.url)
-  } catch { return [] }
-}
-async function searchWorld(ctx, query, opts) {
-  const timeout = opts.timeoutMs ?? 15000
-  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), timeout)
-  try {
-    if (ctx?.web && typeof ctx.web.search === 'function' && opts.mode !== 'builtin') {
-      try {
-        const r = await ctx.web.search({ query, maxResults: opts.max }, ctl.signal)
-        if (Array.isArray(r?.sources) && r.sources.length) { clearTimeout(timer); return r.sources }
-      } catch {}
-    }
-    let items = await ddg(query, ctl.signal)
-    if (!items.length) items = await wiki(query, ctl.signal)
-    clearTimeout(timer)
-    return items
-  } catch { clearTimeout(timer); return [] }
+  } catch {
+    return []
+  }
 }
 
-/* ---------- 并发信号量 ---------- */
-class Semaphore {
-  constructor(cap) { this.cap = Math.max(1, cap); this.cur = 0; this.q = [] }
-  async acquire() { if (this.cur < this.cap) { this.cur++; return } await new Promise(r => this.q.push(r)); this.cur++ }
-  release() { this.cur--; const n = this.q.shift(); if (n) n() }
+async function searchWikipedia(query, signal) {
+  try {
+    const en = /^[a-zA-Z0-9\s._-]+$/.test(query)
+    const url = 'https://' + (en ? 'en' : 'zh') + '.wikipedia.org/w/api.php?action=opensearch&search=' +
+      encodeURIComponent(query) + '&limit=4&namespace=0&format=json'
+    const res = await fetch(url, { signal })
+    if (!res.ok) return []
+    const d = await res.json()
+    const t = d[1] || []
+    const s = d[2] || []
+    const u = d[3] || []
+    return t.map((_, i) => ({ title: t[i], snippet: s[i] || '', url: u[i] })).filter((x) => x.title && x.url)
+  } catch {
+    return []
+  }
 }
+
+/**
+ * 搜索：宿主 provider 优先，其次 DuckDuckGo，最后 Wikipedia。
+ * 这是**顺序降级链**，不是交叉验证。
+ */
+async function searchWeb(ctx, query, opts) {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs)
+  try {
+    if (opts.mode !== 'builtin' && ctx?.web && typeof ctx.web.search === 'function') {
+      try {
+        const r = await ctx.web.search({ query, maxResults: opts.maxResults }, ctl.signal)
+        if (Array.isArray(r?.sources) && r.sources.length) return { engine: 'host', items: r.sources }
+      } catch {}
+    }
+    if (opts.mode !== 'host') {
+      let items = await searchDuckDuckGo(query, ctl.signal)
+      if (items.length) return { engine: 'duckduckgo', items }
+      items = await searchWikipedia(query, ctl.signal)
+      if (items.length) return { engine: 'wikipedia', items }
+    }
+    return { engine: 'none', items: [] }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/* ───────────────────────────── 并发闸门 ───────────────────────────── */
+
+export class AsyncSemaphore {
+  constructor(capacity = 1) {
+    this.capacity = Math.max(1, Number(capacity) || 1)
+    this.current = 0
+    this.waiters = []
+  }
+  async acquire() {
+    if (this.current < this.capacity) {
+      this.current += 1
+      return
+    }
+    await new Promise((resolve) => this.waiters.push(resolve))
+    this.current += 1
+  }
+  release() {
+    this.current = Math.max(0, this.current - 1)
+    const next = this.waiters.shift()
+    if (next) next()
+  }
+}
+
+/* ───────────────────────────── 子代理 ───────────────────────────── */
+
+/**
+ * 探测宿主子代理能力并返回调用方式。
+ * DSH 0.1.x：ctx.subagents.start(name, request) → { id, localAgent, result, dispose }
+ * DSH 0.2.x：官方改用 startActivation —— 本机无 0.2.x，**未经验证**，仅做存在性分支。
+ */
+export function detectSubagentApi(service) {
+  if (!service || typeof service !== 'object') return null
+  if (typeof service.startActivation === 'function') return 'activation'
+  if (typeof service.start === 'function') return 'start'
+  return null
+}
+
+/** 从一次 run 的结果里取最终助手文本。 */
+function extractReport(result) {
+  const output = Array.isArray(result?.output) ? result.output : []
+  const parts = []
+  for (const part of output) {
+    if (typeof part === 'string') parts.push(part)
+    else if (part && typeof part.text === 'string') parts.push(part.text)
+  }
+  return parts.join('\n').trim()
+}
+
+/* ───────────────────────────── 插件主体 ───────────────────────────── */
 
 export function apply(ctx, config = {}) {
   const opts = {
-    max: config.searchMaxResults ?? 4,
-    timeoutMs: config.searchTimeoutMs ?? 15000,
-    mode: config.searchEngine === 'builtin' ? 'builtin' : 'auto',
-    maxTurns: config.maxTurnsDefault ?? 8,
-    maxTurnsDeep: config.maxTurnsDeep ?? 12,
-    maxToolCalls: config.maxToolCalls ?? 15,
+    concurrencyLimit: Number(config.concurrencyLimit) || 1,
+    searchEngine: config.searchEngine || 'auto',
+    maxResults: Number(config.searchMaxResults) || 4,
+    timeoutMs: Number(config.searchTimeoutMs) || 15000,
+    maxTurnsDefault: Number(config.maxTurnsDefault) || 8,
+    maxTurnsDeep: Number(config.maxTurnsDeep) || 12,
+    maxToolCalls: Number(config.maxToolCalls) || 15,
+    bash: config.bash || 'sandbox',
+    auditFile: config.auditFile || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'slim-agent-audit.jsonl'),
   }
-  const sem = new Semaphore(config.concurrencyLimit ?? 1)
+  const sem = new AsyncSemaphore(opts.concurrencyLimit)
   const disposers = []
-  const reg = (t) => { try { disposers.push(ctx.tools.register(t)) } catch (e) { try { ctx.logger?.warn?.('[slim-core] tool ' + t.name + ' skipped: ' + String(e && e.message || e)) } catch {} } }
 
-  /* read / edit 由 @deepseek-ai/dsh-tool-fs 提供，这里不再重复注册（重名会抛错） */
-
-  /* 3. bash */
-  reg({
-    name: 'bash',
-    description: 'Execute a shell command.',
-    parameters: { type: 'object', properties: { command: { type: 'string', description: 'Command line.' } }, required: ['command'] },
-    output: { schema: { type: 'object', properties: { output: { type: 'string' } }, required: ['output'] }, render: (_a, v) => [{ type: 'text', text: v.output }] },
-    async execute(args, exec) {
+  /** 注册工具：任何一次注册失败都不应拖垮整条预设。 */
+  const reg = (tool) => {
+    try {
+      disposers.push(ctx.tools.register(tool))
+    } catch (error) {
       try {
-        const cwd = exec?.agent?.session?.header?.cwd ?? process.cwd()
-        const { stdout, stderr } = await execAsync(args.command, { cwd, timeout: 60000, maxBuffer: 524288, windowsHide: true })
-        let t = (stdout || '').trim()
-        if (stderr) t += (t ? '\n' : '') + '[stderr]\n' + stderr.trim()
-        if (!t) t = '(no output)'
-        return { output: t.length > 4000 ? t.slice(0, 4000) + `\n...(truncated ${t.length} chars)` : t }
-      } catch (e) { return { output: `[exit ${e.code ?? 1}]\n${String((e.stdout || '') + (e.stderr || e.message || '')).slice(0, 4000)}` } }
-    },
+        ctx.logger?.warn?.('[slim-core] tool "' + tool.name + '" not registered: ' + String(error?.message || error))
+      } catch {}
+    }
+  }
+
+  const audit = (entry) => {
+    void appendFile(opts.auditFile, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n', 'utf8').catch(() => {})
+  }
+
+  const textOut = (key) => ({
+    schema: { type: 'object', properties: { [key]: { type: 'string' } }, required: [key] },
+    render: (_args, value) => [{ type: 'text', text: String(value[key] ?? '') }],
   })
 
-  /* 4. web_search */
+  /* ── 1. bash ─────────────────────────────────────────────────────── */
+  const bashSandboxAvailable = typeof ctx.subprocess?.spawn === 'function'
+  if (opts.bash !== 'off') {
+    reg({
+      name: 'bash',
+      description: 'Run one shell command in the session workspace. Prefer short, single-purpose commands.',
+      parameters: {
+        type: 'object',
+        properties: { command: { type: 'string', description: 'Command line to execute.' } },
+        required: ['command'],
+      },
+      output: textOut('output'),
+      async execute(args, exec) {
+        const command = String(args.command ?? '')
+        if (command.trim() === '') return { output: 'No command provided.' }
+
+        if (opts.bash === 'sandbox' && !bashSandboxAvailable) {
+          audit({ kind: 'bash', policy: 'sandbox', refused: 'no-sandbox-service', command })
+          throw new Error('bash unavailable: host exposes no sandboxed shell (ctx.subprocess.spawn). Set bash: "local" in the preset config to allow unsandboxed execution.')
+        }
+
+        if (opts.bash === 'local') {
+          const hit = DANGEROUS.find((re) => re.test(command))
+          if (hit) {
+            audit({ kind: 'bash', policy: 'local', refused: 'dangerous-pattern', pattern: String(hit), command })
+            throw new Error('command refused by slim-agent policy: it matches a destructive pattern. Narrow the command or run it manually.')
+          }
+        }
+
+        const cwd = exec?.agent?.session?.header?.cwd || process.cwd()
+        const startedAt = Date.now()
+        try {
+          const { stdout, stderr } = await execAsync(command, { cwd, timeout: 60000, maxBuffer: 512 * 1024, windowsHide: true })
+          let text = (stdout || '').trim()
+          if (stderr) text += (text ? '\n' : '') + '[stderr]\n' + stderr.trim()
+          if (!text) text = '(no output)'
+          audit({ kind: 'bash', policy: opts.bash, command, cwd, exit: 0, ms: Date.now() - startedAt })
+          return { output: text.length > 4000 ? text.slice(0, 4000) + '\n...(truncated ' + text.length + ' chars)' : text }
+        } catch (error) {
+          audit({ kind: 'bash', policy: opts.bash, command, cwd, exit: error?.code ?? 1, ms: Date.now() - startedAt })
+          const body = String((error?.stdout || '') + (error?.stderr || '') + (error?.message || '')).slice(0, 4000)
+          return { output: '[exit ' + (error?.code ?? 1) + ']\n' + body }
+        }
+      },
+    })
+  }
+
+  /* ── 2. web_search ───────────────────────────────────────────────── */
   reg({
     name: 'web_search',
-    description: 'Search the web for facts or clues. Returns 3-5 concise items with source trust tags. Never returns page bodies.',
-    parameters: { type: 'object', properties: { queries: { type: 'array', items: { type: 'string' }, description: '1-3 query strings.' } }, required: ['queries'] },
-    output: { schema: { type: 'object', properties: { result: { type: 'string' } }, required: ['result'] }, render: (_a, v) => [{ type: 'text', text: v.result }] },
+    description: 'Search the web for clues. Returns up to 4 items: source-tag, title, URL, one-line snippet. Never returns page bodies.',
+    parameters: {
+      type: 'object',
+      properties: {
+        queries: { type: 'array', items: { type: 'string' }, description: '1 to 3 query strings.' },
+      },
+      required: ['queries'],
+    },
+    output: textOut('result'),
     async execute(args) {
-      const qs = (args.queries || []).filter(q => typeof q === 'string' && q.trim())
-      if (!qs.length) return { result: 'No valid query provided.' }
-      const q = qs.join(' ')
-      const items = await searchWorld(ctx, q, opts)
-      if (!items.length) return { result: `No results for "${q}". Try broader keywords or delegate to subagent.` }
-      const lines = [`[线索] "${q}"（前 ${Math.min(items.length, opts.max)} 条，深挖请委派 subagent）:`]
-      for (let i = 0; i < Math.min(items.length, opts.max); i++) {
-        const it = items[i]; const url = it.url || ''
-        let title = String(it.title || 'link').replace(/[\r\n]+/g, ' ').slice(0, 35)
-        let sn = String(it.snippet || '').replace(/[\r\n]+/g, ' ').slice(0, 75)
-        lines.push(`${i + 1}. ${classify(url)} [${title}](${url})${yearOf(title + ' ' + sn)} — ${sn || '无摘要'}`)
+      const queries = (Array.isArray(args.queries) ? args.queries : []).filter((q) => typeof q === 'string' && q.trim() !== '')
+      if (queries.length === 0) return { result: 'No usable query provided.' }
+      if (queries.length > 3) queries.length = 3
+      const query = queries.join(' ')
+      const { engine, items } = await searchWeb(ctx, query, opts)
+      if (items.length === 0) {
+        return { result: 'No results for "' + query + '". Try broader keywords, or delegate to subagent with a specific site.' }
       }
+      const lines = ['[线索] "' + query + '" via ' + engine + '（前 ' + Math.min(items.length, opts.maxResults) + ' 条，读全文请委派 subagent）:']
+      const max = Math.min(items.length, opts.maxResults)
+      for (let i = 0; i < max; i += 1) {
+        const item = items[i]
+        const url = item.url || ''
+        const title = String(item.title || 'link').replace(/\s+/g, ' ').slice(0, 40)
+        const snippet = String(item.snippet || '').replace(/\s+/g, ' ').slice(0, 80)
+        lines.push((i + 1) + '. ' + classifySource(url) + ' [' + title + '](' + url + ')' + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要'))
+      }
+      lines.push('')
+      lines.push('（标签是域名启发式，仅作参考；关键结论请交叉核对原始来源。）')
       return { result: lines.join('\n') }
     },
   })
 
-  /* 5. task_complete */
+  /* ── 3. task_complete ────────────────────────────────────────────── */
   reg({
     name: 'task_complete',
-    description: 'Call when the objective is achieved to summarize and stop further turns.',
-    parameters: { type: 'object', properties: { summary: { type: 'string', description: 'One or two sentences of the final conclusion.' } }, required: ['summary'] },
-    output: { schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'] }, render: (_a, v) => [{ type: 'text', text: v.status }] },
-    async execute(args, exec) { try { if (typeof exec?.concludeTurn === 'function') exec.concludeTurn() } catch {} return { status: `[DONE] ${args.summary}` } },
+    description: 'Call exactly once when the objective is achieved: summarizes and stops further turns.',
+    parameters: {
+      type: 'object',
+      properties: { summary: { type: 'string', description: 'One or two sentences: what was done and the conclusion.' } },
+      required: ['summary'],
+    },
+    output: textOut('status'),
+    async execute(args, exec) {
+      try {
+        if (typeof exec?.concludeTurn === 'function') exec.concludeTurn()
+      } catch {}
+      return { status: '[DONE] ' + String(args.summary ?? '') }
+    },
   })
 
-  /* 6. subagent */
+  /* ── 4. subagent ─────────────────────────────────────────────────── */
   reg({
     name: 'subagent',
-    description: 'Delegate multi-step reading or deep research to an isolated subagent. Only distilled conclusions come back.',
+    description: 'Delegate multi-page reading or deep research to an isolated child agent. Only its distilled report returns; page bodies never enter this context.',
     parameters: {
       type: 'object',
       properties: {
-        task_description: { type: 'string', description: 'Objective and context.' },
-        constraints: { type: 'string', description: 'Scope limits (optional).' },
-        max_turns: { type: 'integer', description: 'Turn cap (default 8, deep 12).' },
-        context_budget: { type: 'integer', description: 'Token budget (default 4000).' },
-        expected_output: { type: 'string', description: 'Expected summary structure.' },
+        task_description: { type: 'string', description: 'Objective plus the context the child needs.' },
+        constraints: { type: 'string', description: 'Scope limits, forbidden sources, etc. (optional).' },
+        max_turns: { type: 'integer', description: 'Turn cap; defaults to the preset limit.' },
+        context_budget: { type: 'integer', description: 'Advisory token budget for the child.' },
+        expected_output: { type: 'string', description: 'Shape of the report you want back.' },
       },
       required: ['task_description', 'expected_output'],
     },
-    output: { schema: { type: 'object', properties: { report: { type: 'string' } }, required: ['report'] }, render: (_a, v) => [{ type: 'text', text: v.report }] },
+    output: textOut('report'),
     async execute(args, exec) {
-      const turns = Math.min(Math.max(1, args.max_turns ?? opts.maxTurns), opts.maxTurnsDeep)
+      const service = ctx.subagents
+      const api = detectSubagentApi(service)
+      if (api === null) {
+        throw new Error('subagent unavailable: this host exposes no subagents service (neither startActivation nor start). Do the work yourself with web_search, or upgrade DSH.')
+      }
+      if (api === 'activation') {
+        throw new Error('subagent unavailable: this build exposes startActivation only, which dsh-slim-agent has not verified against a real 0.2.x host yet. Please report your DSH version.')
+      }
+
+      const turns = Math.min(Math.max(1, Number(args.max_turns) || opts.maxTurnsDefault), opts.maxTurnsDeep)
+      const prompt = [
+        '【深度研究子任务】',
+        '目标：' + args.task_description,
+        args.constraints ? '限制：' + args.constraints : '',
+        '期望结构：' + args.expected_output,
+        '预算：最多 ' + turns + ' 轮。',
+        '',
+        '纪律：',
+        '1. 用 web_search / web_fetch / read / bash 做多步检索，不要臆测；',
+        '2. 不要把网页原文整段复制出来，只提炼要点并附来源 URL；',
+        '3. 关键结论尽量用两个独立来源交叉核对；无法核实的写进【未验证部分】；',
+        '4. 最后按三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
+      ].filter(Boolean).join('\n')
+
       await sem.acquire()
+      let run
       try {
-        const prompt = [
-          '【深度研究子任务】',
-          `目标：${args.task_description}`,
-          args.constraints ? `限制：${args.constraints}` : '',
-          `期望结构：${args.expected_output}`,
-          `预算：最多 ${turns} 轮。`,
-          '',
-          '纪律：可用 web_search/web_fetch/read/bash 多步检索；不要把网页原文原样甩出；',
-          '关键结论尽量用两个独立信源交叉验证；未证实的放【未验证部分】；',
-          '最终按【已确认结论】【未验证部分】【建议主代理下一步】三段式输出。',
-        ].filter(Boolean).join('\n')
-        if (ctx.subagents && typeof ctx.subagents.start === 'function') {
-          let turns_used = 0, calls = 0, landed = false
-          const handle = await ctx.subagents.start(config.subagentProvider ?? 'spawn', {
-            label: `slim: ${String(args.task_description).slice(0, 30)}`,
-            prompt: [{ type: 'text', text: prompt }],
-            parent: exec?.agent, signal: exec?.signal,
-            setup: (child) => {
-              child.on('agent/pre-step', async (_p, next) => {
-                turns_used++
-                if (turns_used >= turns && !landed) {
-                  landed = true
-                  child.tools?.restrict?.({ deny: ['web_search', 'web_fetch', 'bash', 'edit'] })
-                  return { kind: 'steer', message: { role: 'system', content: '【预算耗尽】工具已锁定，立即按三段式输出：\n1.【已确认结论】\n2.【未验证部分】\n3.【建议主代理下一步】' } }
-                }
-                return next()
-              })
-              child.on('tools/pre-execute', () => {
-                calls++
-                if (calls > opts.maxToolCalls && !landed) {
-                  landed = true
-                  child.tools?.restrict?.({ deny: ['web_search', 'web_fetch', 'bash', 'edit'] })
-                }
-              })
-            },
-          })
-          const out = await handle.done
-          const text = out?.output?.[0]?.text ?? out?.result ?? ''
-          return { report: text || '【子代理完成，无文本输出】' }
+        if (exec?.signal?.aborted) throw new Error('delegation cancelled before start')
+        run = await service.start(config.subagentProvider || 'spawn', {
+          label: 'slim: ' + String(args.task_description).slice(0, 40),
+          prompt: [{ type: 'text', text: prompt }],
+          parent: exec?.agent,
+          signal: exec?.signal,
+          // 子代理保留完整研究工具面；不继承主代理的 6 工具白名单
+          persona: [
+            '你是一个只做深度研究、不写代码的调研员。',
+            '遵守三轮三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
+            '预算最多 ' + turns + ' 轮；接近上限时立刻收束并输出已有结论。',
+          ].join('\n'),
+        })
+      } finally {
+        // start 失败时不需要 release 之外的动作
+      }
+
+      try {
+        if (typeof run?.result?.then !== 'function') {
+          throw new Error('subagent run returned no result promise; host API shape changed')
         }
-        return { report: `【子代理不可用】已记录目标：${args.task_description}` }
-      } finally { sem.release() }
+        const result = await run.result
+        const report = extractReport(result)
+        const stopReason = result?.stopReason || 'unknown'
+        if (!report) {
+          throw new Error('subagent finished with stopReason=' + stopReason + ' but produced no text output')
+        }
+        if (stopReason !== 'completed') {
+          return { report: report + '\n\n[注意] 子代理未正常完成（stopReason=' + stopReason + '），以上为部分结论。' }
+        }
+        return { report }
+      } finally {
+        try {
+          if (typeof run?.dispose === 'function') await run.dispose()
+        } catch (error) {
+          try { ctx.logger?.warn?.('[slim-core] subagent dispose failed: ' + String(error)) } catch {}
+        }
+        sem.release()
+      }
     },
   })
 
-  /* 主代理可见面：只留 6 个 */
-  ctx.on('system-prompt/assemble', async (_asm, context, next) => {
-    const assembled = await next()
+  /* ── 5. 主代理工具面：6 个，异常时 fail-closed ────────────────────── */
+  /**
+   * fail-closed 的降级副本：复制除 tools 以外的字段。
+   * 用 Object.keys 枚举（不触发 getter），逐键读取放在 try 里 —— 上游 assembly
+   * 本身损坏时，我们既不能放行全量工具，也不能因为读坏字段再次抛错。
+   */
+  const withoutTools = (assembly) => {
+    const copy = {}
     try {
-      const agent = context?.agent
-      const hdr = agent?.session?.header
-      if (hdr && (hdr.origin === 'subagent' || (hdr.delegationDepth ?? 0) > 0)) return assembled
+      for (const key of Object.keys(assembly ?? {})) {
+        if (key === 'tools') continue
+        try { copy[key] = assembly[key] } catch { /* 单个坏字段直接丢弃 */ }
+      }
+    } catch { /* 完全读不出来就只返回空工具集 */ }
+    return { ...copy, tools: [] }
+  }
+
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    let assembled
+    try {
+      assembled = await next()
+    } catch (error) {
+      try { ctx.logger?.warn?.('[slim-core] upstream assembly failed, exposing no tools (fail-closed): ' + String(error)) } catch {}
+      return { tools: [] }
+    }
+    try {
+      const header = context?.agent?.session?.header
+      const isChild = header !== undefined && (header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0)
+      if (isChild) return assembled
       const tools = Array.isArray(assembled.tools) ? assembled.tools : []
-      return { ...assembled, tools: tools.filter(t => ALLOW.has(t?.name)) }
-    } catch { return assembled }
+      return { ...assembled, tools: tools.filter((tool) => ALLOW.has(tool?.name)) }
+    } catch (error) {
+      try { ctx.logger?.warn?.('[slim-core] whitelist failed, exposing no tools (fail-closed): ' + String(error)) } catch {}
+      return withoutTools(assembled)
+    }
   }, { prepend: true })
 
-  return () => { for (const d of disposers) { try { if (typeof d === 'function') d(); else d?.dispose?.() } catch {} } }
+  return () => {
+    for (const dispose of disposers.splice(0)) {
+      try {
+        if (typeof dispose === 'function') dispose()
+        else if (typeof dispose?.dispose === 'function') dispose.dispose()
+      } catch {}
+    }
+  }
 }

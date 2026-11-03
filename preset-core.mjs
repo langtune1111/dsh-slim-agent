@@ -58,8 +58,8 @@ function optionalService(ctx, name) {
   }
 }
 
-/** 主代理可见的 6 个工具。read/edit 来自 tool-fs，其余由本模块注册。 */
-const ALLOW = new Set(['read', 'edit', 'bash', 'web_search', 'subagent'])
+/** 主代理可见的工具。read/edit 来自 tool-fs，其余由本模块注册。
+ *  实际白名单在 apply() 里按消融开关动态构造（allow）。 */
 
 /** local 模式下拒绝的命令模式（启发式，不是安全边界）。 */
 const DANGEROUS = [
@@ -261,13 +261,25 @@ export function apply(ctx, config = {}) {
     maxTurnsDeep: Number(config.maxTurnsDeep) || 12,
     maxToolCalls: Number(config.maxToolCalls) || 15,
     bash: config.bash || 'sandbox',
+    // 消融开关（默认值与正式行为一致；仅供 benchmark 逐项对照使用）
+    enableSearch: config.enableSearch !== false,
+    enableSubagent: config.enableSubagent !== false,
+    enableTaskComplete: config.enableTaskComplete === true,
     auditFile: config.auditFile || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'slim-agent-audit.jsonl'),
   }
   const sem = new AsyncSemaphore(opts.concurrencyLimit)
   const disposers = []
 
+  /* 主代理可见工具集 = 白名单 = 开关产物。两者必须同源，否则会出现
+   * "注册了但不给列"或"列了但调不动"的错位。 */
+  const allow = new Set(['read', 'edit', 'bash'])
+  if (opts.enableSearch) allow.add('web_search')
+  if (opts.enableSubagent) allow.add('subagent')
+  if (opts.enableTaskComplete) allow.add('task_complete')
+
   /** 注册工具：任何一次注册失败都不应拖垮整条预设。 */
   const reg = (tool) => {
+    if (!allow.has(tool.name)) return
     try {
       disposers.push(ctx.tools.register(tool))
     } catch (error) {
@@ -418,7 +430,29 @@ export function apply(ctx, config = {}) {
    * 大多正常收尾。结论：这个工具在小模型上只会把答复吃掉，收益为零。
    *
    * 想要"停下来"的语义，请让模型直接给出文字结论；宿主侧不再需要显式收尾工具。
-   */
+   *
+   * 下面这段是**故意保留的旧行为**，只有 enableTaskComplete: true 时才挂载，
+   * 用于 benchmark 的 Q4 消融（验证"收尾工具到底是正收益还是负收益"）。
+   * 生产配置永远不要打开它。 */
+
+  if (opts.enableTaskComplete) {
+    reg({
+      name: 'task_complete',
+      description: 'Call exactly once when the objective is achieved: summarizes and stops further turns.',
+      parameters: {
+        type: 'object',
+        properties: { summary: { type: 'string', description: 'One or two sentences: what was done and the conclusion.' } },
+        required: ['summary'],
+      },
+      output: textOut('status'),
+      async execute(args, exec) {
+        try {
+          if (typeof exec?.concludeTurn === 'function') exec.concludeTurn()
+        } catch {}
+        return { status: '[DONE] ' + String(args.summary ?? '') }
+      },
+    })
+  }
 
   /* ── 4. subagent ─────────────────────────────────────────────────── */
   reg({
@@ -525,7 +559,7 @@ export function apply(ctx, config = {}) {
       const isChild = header !== undefined && (header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0)
       if (isChild) return assembled
       const tools = Array.isArray(assembled.tools) ? assembled.tools : []
-      return { ...assembled, tools: tools.filter((tool) => ALLOW.has(tool?.name)) }
+      return { ...assembled, tools: tools.filter((tool) => allow.has(tool?.name)) }
     } catch (error) {
       try { ctx.logger?.warn?.('[slim-core] whitelist failed, exposing no tools (fail-closed): ' + String(error)) } catch {}
       return withoutTools(assembled)
@@ -546,7 +580,7 @@ export function apply(ctx, config = {}) {
       const isChild = header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0
       if (isChild) return next()
       const name = exec?.name ?? exec?.tool?.name ?? exec?.call?.name
-      if (typeof name === 'string' && name !== '' && !ALLOW.has(name)) {
+      if (typeof name === 'string' && name !== '' && !allow.has(name)) {
         try { ctx.logger?.warn?.('[slim-core] denied out-of-whitelist tool: ' + name) } catch {}
         return { kind: 'deny', reason: `[slim] tool "${name}" is outside the main-agent whitelist` }
       }

@@ -16,11 +16,12 @@
 
 | 编号 | 问题 | 对照 |
 |---|---|---|
-| Q1 | 加了同一份 `web_search`，小模型的世界知识类任务通过率提升多少？ | A vs B |
-| Q2 | Slim 的工具组织 + 提示词，比"极简 + 一个搜索工具"更强吗？ | B vs C |
-| Q3 | 子代理是否真的降低了主代理上下文、并提高复杂研究任务通过率？ | C vs D |
-| Q4 | `task_complete`（0.3.0 已移除）对完成率是正收益还是负收益？ | D vs E |
-| Q5 | 上述收益在 8K 是否成立、在 64K 是否消失？ | 8K vs 64K |
+| Q1 | 没有任何搜索工具时，模型能答对多少实时事实题？ | A / C（负面对照） |
+| Q2 | 打开插件自带的搜索后，通过率提升多少？ | C vs D |
+| Q3 | 子代理是否降低主代理上下文占用、并提高复杂研究题通过率？ | D vs E |
+| Q4 | `task_complete` 是正收益还是负收益？（0.3.0 已移除，F 组回填） | E vs F |
+| Q5 | 上述收益在 8K 成立、在 64K 是否消失？ | 8K vs 64K |
+| Q6 | 完整的 slim 是否比"极简/标准"更适合小模型？ | A / B vs E |
 
 **默认立场：不预设 Slim 更优。** 若 Q2 的答案是"B ≥ C"，就按结果删功能。
 
@@ -34,54 +35,74 @@
 | 2 | `task_complete` 的 `concludeTurn()` 丢弃最终答复 | ✅ 已移除该工具 |
 | 3 | 白名单被 `fs-observation-policy` 中途注册的 `write`/`read_image` 绕过 | ✅ 已加 `tools/pre-execute` 执行期硬闸 + 2 条单测 |
 | 4 | 版本号统一（README / package.json / tgz / 测试副本） | ✅ `0.3.0-alpha.1`；tgz 需在开跑前重新 `npm pack` |
-| 5 | **输出预算算法**：`max_tokens=1` 的运行不得进入通过率统计 | ⚠️ **未解决，见 §7.3** |
+| 5 | **输出预算算法**：`max_tokens=1` 的运行不得进入通过率统计 | ⚠️ 根因已定位（`pi-ai` 的 `CONTEXT_SAFETY_TOKENS = 4096`），见 [ISSUE-dsh-context-budget.md](../ISSUE-dsh-context-budget.md)；在官方修好前按 §7.3 隔离 |
 | 6 | 子代理的 LLM 调用必须被单独计量 | ⚠️ 需在计量代理侧按 session 归属拆分，见 §6 |
 
 > 第 5 项是硬门槛：在它解决之前，**4K 不进入主表**。
 
 ---
 
-## 2. 对照组（七个 arm，全部来自同一份代码）
+## 2. 对照组的构造原则：只测 agent 自己的能力
 
-所有 arm 使用同一模型文件、同一 llama.cpp 实例、同一采样参数、同一搜索实现。
+**原则：不给任何一组"外挂"搜索能力。**
+每个 arm 跑的都是它自己那条代码路径，我们只拨动**产品自身已有的开关**；
+不往 DSH 极简里塞一个第三方搜索实现，也不为对照另写一套搜索工具。
+DeepSeek 的搜索 API 一律禁用（见 §3），那是作弊。
 
-| Arm | 组成 | 用途 |
-|---|---|---|
-| **A** | 极简基线：`tool-fs`(只读) + `bash`，**无搜索** | 负面对照：模型自身知识 |
-| **B** | 极简 + **Slim 的 `web_search`**（同一份代码、同一引擎、同一 schema） | 单纯联网的收益 |
-| **C** | Slim 完整工具与 prompt，**但关掉 subagent** | 工具组织 + 提示词的收益 |
-| **D** | Slim 完整（read/edit/bash/web_search/subagent） | 完整架构 |
-| **E** | D + 重新挂回 `task_complete`（0.3.0 已删，用于验证 Q4） | 收尾工具的影响 |
-| **F** | `pi` agent（无等价搜索工具） | 外部参照，**联网类任务标 N/A** |
-| **G** | DSH 标准模式（24 工具） | 仅作工具开销上界参照，不参与主要比较 |
+### 2.1 七个 arm
 
-**实现要求**：B / C / D / E 必须是**同一条代码路径**，只差配置开关。
-为此需要给 `preset-core.mjs` 增加三个 benchmark-only 配置项（默认值保持现有行为，不影响正式用法）：
+| Arm | 配置 | 自身的搜索能力 | 用途 |
+|---|---|---|---|
+| **A** | DSH 极简（`minimal` preset） | 无 | 负面对照：模型自身知识下限 |
+| **B** | DSH 标准（`standard` preset，`tool-web.search=false`） | 无（工具面最大） | 工具开销上界参照 |
+| **C** | slim：`enableSearch=false, enableSubagent=false` | 无 | 只有本地工具时的能力 |
+| **D** | slim：`enableSearch=true, enableSubagent=false` | 有（内置 DDG→Wikipedia） | **纯搜索**的收益 |
+| **E** | slim 完整（搜索 + 子代理） | 有 + 可读正文 | **产品默认配置** |
+| **F** | slim 完整 + `enableTaskComplete=true` | 同上 | Q4：收尾工具是正收益还是负收益 |
+| **G** | `pi` agent | 无（只有 read/bash/edit/write） | 外部参照，联网类任务记 N/A |
 
+### 2.2 三个消融开关（已实现并且有单测）
+
+`preset-core.mjs` 新增三个 **benchmark-only** 配置项，默认值与正式行为完全一致：
+
+```yaml
+enableSearch: true          # false → 不注册 web_search，白名单同步收窄
+enableSubagent: true        # false → 不注册 subagent
+enableTaskComplete: false   # true  → 回填 0.2.x 的旧 task_complete（仅 Q4 消融）
 ```
-enableSubagent: true|false      # C 组关掉
-enableTaskComplete: false|true  # E 组打开
-enableSearch: true|false        # A 组关掉
-```
 
-> 这是本方案唯一要求的**新增产品代码**；若你不接受为测试改产品代码，
-> 退路是让 B/C 组挂载 `slim-core` 的一份 `benchmark/web-research/arms/*.mjs` 副本，
-> 但那样就违反"同一份实现"的对照原则，可信度下降，需要在报告里显式声明。
+因为注册与白名单同源（都从开关构造 `allow` 集合），**不会出现"注册了但不给列"或"列了却调不动"的错位**；
+`tools/pre-execute` 硬闸用的也是同一个集合。C/D/E/F 四组因此走的是**同一条代码路径**，
+只有开关不同——这是本方案可信度的前提。
+
+### 2.3 被否掉的做法
+
+初稿里有一个 arm 叫"极简 + 注入 slim 的 web_search"。这个设计被取消，原因正是你指出的：
+那等于给一个本来没有搜索能力的 agent 外挂了插件，测出来的是"插件+外壳"而不是"这个 agent 行不行"。
+现在 K2 类问题改为 **C vs D vs E 内部对比**：同一个插件、同一套 prompt，只拨开关。
 
 ---
 
-## 3. 搜索实现与"禁用 DeepSeek 搜索 API"的技术保证
+## 3. 搜索变量与"禁用 DeepSeek 搜索 API"的技术保证
 
-**这是硬性约束**：三种模式（含 0.3.0 的 Slim）都不得调用 DeepSeek 的搜索接口。
+### 3.1 三个必须被控制的变量
 
-| 保证层 | 做法 | 验证方式 |
+| 变量 | 控制方式 |
+|---|---|
+| **插件** | 用 §2.2 的开关；C/D/E/F 同一份代码 |
+| **搜索实现** | 只有内置 DDG → Wikipedia 降级链（`searchEngine: 'builtin'`），永不调用宿主 provider |
+| **网页内容** | 所有 arm 共用同一批**冻结快照**（`sources/`，含 sha256 与抓取时间）；实验期间不允许实时漂移 |
+
+### 3.2 四层禁令（DeepSeek 搜索 API）
+
+| 层 | 做法 | 验证 |
 |---|---|---|
-| 插件层 | 基准 profile 的 patch 里把 `@deepseek-ai/dsh-web-search-deepseek`、`@deepseek-ai/dsh-web-deepseek-api` 显式 `disabled: true`；`tool-web.search` 置 `false` | `dsh --profile headless --dump-config \| grep -c web-search-deepseek` 必须为 0（已禁用行不出现或为 disabled） |
-| 凭据层 | 基准进程 `env -u DEEPSEEK_API_KEY`（`web-search-deepseek` 的 `apiKeyEnv` 指向它，缺凭据即不可用） | 启动后 `/proc/<pid>/environ` 校验 |
-| 代码层 | Slim 的 `web_search` 用 `searchEngine: 'builtin'`（只走 DuckDuckGo → Wikipedia 降级链），**永不访问宿主 provider** | 单测已覆盖 `builtin` 模式下不调用宿主 |
-| 运行时层 | 计量代理对**所有出站 HTTP**（含搜索）记日志：查询词、引擎、URL、耗时 | 报告中按 `engine` 字段统计，出现 `host`/`deepseek` 即为违规，实验作废 |
+| 插件层 | patch 里把 `@deepseek-ai/dsh-web-search-deepseek`、`@deepseek-ai/dsh-web-deepseek-api` 显式 `disabled: true`；`tool-web.search: false` | 启动前 `dsh --dump-config` 断言这两行不存在或为 disabled |
+| 凭据层 | 基准进程 `env -u DEEPSEEK_API_KEY` | 启动后读 `/proc/<pid>/environ` 校验 |
+| 代码层 | slim 的 `web_search` 固定 `searchEngine: 'builtin'`，单测覆盖"builtin 模式绝不调用宿主" | `npm test` |
+| 运行时层 | 计量代理对搜索调用记录 `engine` 字段；出现 `host`/`deepseek` 即判该次运行无效 | 报告按 engine 出表 |
 
-> A 组作为负面对照，`enableSearch: false`，连内置搜索都不给。
+> 违反任意一层 → 整个 arm 的实验数据作废，不许"修一下重跑一部分"。
 
 ---
 
@@ -126,6 +147,18 @@ enableSearch: true|false        # A 组关掉
 > 不在方案里凭空写死数字，避免把未核实的值写进仓库。
 
 ---
+
+### 4.4 超纲题（预期全灭，单列一栏）
+
+按你的要求保留 3 道**明显超出 1.7B/4B 能力**的题，只用来观察失败模式，**不计入 Overall Pass Rate**：
+
+| 编号 | 形态 | 期望观察到的失败类型 |
+|---|---|---|
+| **X1** | 需要读 3 篇官方文档 + 1 篇 changelog，跨 4 个来源比对同一 API 的三次变更 | `TOOL_LOOP` / `MULTISOURCE_WRONG` |
+| **X2** | 需要先算出中间量，再去官方表里反查对应条目（两跳 + 数值换算） | `SEARCH_OK_NO_UNDERSTANDING` |
+| **X3** | 需要识别某官方页面已被新版取代（旧链接仍 200 但内容过期） | `STALE_SOURCE` / `CITATION_UNSUPPORTED` |
+
+超纲题的通过率单独成表，即使 0/9 也是有效信息。
 
 ## 5. 变量控制
 
@@ -215,10 +248,10 @@ PASS = 核心事实正确
 
 | 阶段 | 规模 | 次数 | 预估耗时 | 目的 |
 |---|---|---|---|---|
-| **P0 冒烟** | 1 题 × 1 次 × 2 模型 × 8K × 5 arm | 10 | ~20 min | 验证 5 个 arm 都能跑、计量对得上 |
-| **P1 筛查** | 6 题（A/B/C/D 各 1–2）× 2 次 × 2 模型 × 8K × 5 arm | 120 | ~4–6 h | 得到方向性差异 |
+| **P0 冒烟** | 1 题 × 1 次 × 2 模型 × 8K × 7 arm | 14 | ~25 min | 验证 7 个 arm 都能跑、计量对得上 |
+| **P1 筛查** | 6 题（四类各 1–2）× 2 次 × 2 模型 × 8K × 7 arm | 168 | ~5–7 h | 得到方向性差异 |
 | **P2 确认** | 差异最大的 2 vs 2 arm × 3 题 × 5 次 × 2 模型 × (8K + 64K) | 240 | ~8–12 h | 收敛结论 |
-| **P3 4K** | 待 §7.3 修复后，按 P1 规模补 4K | 120 | ~4–6 h | 验证低上下文优势 |
+| **P3 4K** | 待官方修好 §7.3 后，按 P1 规模补 4K | 168 | ~5–7 h | 验证低上下文优势 |
 
 - 每个 `(arm, 题)` 的运行顺序**随机化**，避免缓存与搜索服务时效性偏向某一 arm；
 - 失败样本**全部保留**，不做挑选；
@@ -230,14 +263,15 @@ PASS = 核心事实正确
 
 ```
 benchmark/web-research/
-├── PLAN.md              # 本文件
-├── dataset.json         # 12 题 + 判据
-├── sources.json         # 官方来源 + 快照哈希
-├── sources/             # 冻结的页面快照
-├── run.mjs              # 统一入口（arm × 模型 × 上下文 × 题 × 重复）
-├── evaluate.mjs         # 机器判分 + 失败分类
-├── results/             # 逐次 NDJSON
-└── report.md            # 最终报告
+├── PLAN.md                        # 本文件（方案）
+├── REPORT.md                      # ✅ 已建：15 道题的题目与判据已固化，结果表待回填
+├── ISSUE-dsh-context-budget.md    # ✅ 已建：DSH 输出预算 issue 草稿
+├── dataset.json                   # 待 P0 冻结（12 主线 + 3 超纲）
+├── sources.json                   # 待 P0 冻结（官方来源 + 快照哈希）
+├── sources/                       # 待 P0 冻结（页面快照）
+├── run.mjs                        # 待写：统一入口（arm × 模型 × 上下文 × 题 × 重复）
+├── evaluate.mjs                   # 待写：机器判分 + 失败分类
+└── results/                       # 待写：逐次 NDJSON
 ```
 
 `report.md` 必须包含：五组总通过率、两个模型分开、8K/64K 对比、四类任务分类通过率、
@@ -258,6 +292,6 @@ benchmark/web-research/
 
 ## 11. 需要你拍板的三件事
 
-1. **是否接受给 `preset-core.mjs` 加三个 benchmark-only 配置项**（`enableSubagent` / `enableTaskComplete` / `enableSearch`），以保证五个 arm 走同一条代码路径？
-2. **是否现在就投入 P0+P1**（约 130 次、5–7 小时），还是先把 §7.3 的预算算法查清楚再动？
-3. **12 题的难度梯度**：是"全部按 8K 能跑通"来出，还是保留 2–3 题超纲题（预期全灭）用来观察失败模式？
+1. ~~三个消融开关~~ —— **已实现**（31/31 单测通过）。
+2. **P0+P1 什么时候开始**（约 180 次、6–8 小时）？前置的预算算法问题已经查清并整理成 issue，官方修不修都不影响 P1（P1 只跑 8K，8K 下 `max_tokens` 正常）。
+3. **超纲题的占比**：已按你的要求保留 3 题超纲（§4.4），预期全灭，只用于观察失败模式，不计入主通过率。

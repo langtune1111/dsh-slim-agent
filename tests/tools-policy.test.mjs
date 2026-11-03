@@ -227,3 +227,29 @@ test('执行期硬闸：子代理会话不受限制，且白名单内工具正�
   assert.equal(rootDecision.kind, 'allow')
   assert.equal(rootNext, true)
 })
+
+test('消融开关：enableSearch=false 时不注册 web_search，白名单同步收窄', async () => {
+  const { ctx, registered, handlers } = makeCtx()
+  apply(ctx, { bash: 'local', enableSearch: false })
+  assert.deepEqual(registered.map((t) => t.name).sort(), ['bash', 'subagent'])
+  const hook = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const tools = ['read', 'edit', 'bash', 'web_search', 'subagent'].map((n) => ({ name: n }))
+  const result = await hook.fn({}, { agent: { session: { header: {} } } }, async () => ({ tools }))
+  assert.deepEqual(result.tools.map((t) => t.name).sort(), ['bash', 'edit', 'read', 'subagent'])
+})
+
+test('消融开关：enableSubagent=false 时不注册 subagent', () => {
+  const { ctx, registered } = makeCtx()
+  apply(ctx, { bash: 'local', enableSubagent: false })
+  assert.deepEqual(registered.map((t) => t.name).sort(), ['bash', 'web_search'])
+})
+
+test('消融开关：enableTaskComplete=true 时回填旧的 task_complete（仅 Q4 消融用）', async () => {
+  const { ctx, registered, handlers } = makeCtx()
+  apply(ctx, { bash: 'local', enableTaskComplete: true })
+  assert.deepEqual(registered.map((t) => t.name).sort(), ['bash', 'subagent', 'task_complete', 'web_search'])
+  const hook = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const tools = ['read', 'bash', 'task_complete'].map((n) => ({ name: n }))
+  const result = await hook.fn({}, { agent: { session: { header: {} } } }, async () => ({ tools }))
+  assert.deepEqual(result.tools.map((t) => t.name).sort(), ['bash', 'read', 'task_complete'])
+})

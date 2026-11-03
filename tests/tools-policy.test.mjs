@@ -134,7 +134,7 @@ test('subagent: 宿主无 subagents 服务时必须抛错，不得返回伪造�
   const { ctx, registered } = makeCtx()
   apply(ctx, { bash: 'off' })
   const tool = registered.find((t) => t.name === 'subagent')
-  await assert.rejects(() => tool.execute({ task_description: 'x', expected_output: 'y' }, {}), /no subagents service/)
+  await assert.rejects(() => tool.execute({ task_description: 'x', expected_output: 'y' }, {}), /subagents\.startActivation/)
 })
 
 test('subagent: 宿主支持 0.2.x startActivation 时正常调用并返回提炼报告', async () => {
@@ -169,7 +169,7 @@ test('subagent: 宿主支持 0.2.x startActivation 时正常调用并返回提�
 test('subagent: 启动异常时信号量 100% 释放，后续调用绝不死锁', async () => {
   let callCount = 0
   const failingSubagents = {
-    start() {
+    startActivation() {
       callCount++
       return Promise.reject(new Error('simulated subagent start crash'))
     },

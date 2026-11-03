@@ -411,9 +411,8 @@ export function apply(ctx, config = {}) {
     output: textOut('report'),
     async execute(args, exec) {
       const service = ctx.subagents
-      const api = detectSubagentApi(service)
-      if (api === null) {
-        throw new Error('subagent unavailable: this host exposes no subagents service (neither startActivation nor start). Do the work yourself with web_search, or upgrade DSH.')
+      if (!service || typeof service.startActivation !== 'function') {
+        throw new Error('subagent unavailable: DSH 0.2.x host exposes no subagents.startActivation service.')
       }
 
       const turns = Math.min(Math.max(1, Number(args.max_turns) || opts.maxTurnsDefault), opts.maxTurnsDeep)
@@ -435,81 +434,39 @@ export function apply(ctx, config = {}) {
 
       await sem.acquire()
       try {
-        // 分支 1：DSH 0.2.x 原生支持 startActivation
-        if (api === 'activation') {
-          if (exec?.signal?.aborted) throw new Error('delegation cancelled before start')
-          const request = {
-            prompt: [{ type: 'text', text: prompt }],
-            parent: exec?.agent,
-            signal: exec?.signal,
-            maxDepth: 1,
-          }
-          const activation = await service.startActivation({
-            provider: config.subagentProvider || 'spawn',
-            label: 'slim: ' + String(args.task_description).slice(0, 40),
-            request,
-            signal: exec?.signal,
-            delivery: 'parent',
-          })
-
-          const childId = activation.childId
-          let report = ''
-          if (ctx.agents && typeof ctx.agents.get === 'function') {
-            const childAgent = ctx.agents.get(childId)
-            if (childAgent && typeof childAgent.whenIdle === 'function') {
-              await childAgent.whenIdle()
-              const events = childAgent.session?.snapshotEvents?.(0) || []
-              const assistantMsgs = events.filter((e) => e.type === 'message' && e.data?.role === 'assistant')
-              const lastMsg = assistantMsgs[assistantMsgs.length - 1]
-              report = extractReport({ output: lastMsg?.data?.content || [] })
-            }
-          }
-          if (!report) {
-            report = `[子代理 ${childId} 已激活执行。]`
-          }
-          return { report }
+        if (exec?.signal?.aborted) throw new Error('delegation cancelled before start')
+        const request = {
+          prompt: [{ type: 'text', text: prompt }],
+          parent: exec?.agent,
+          signal: exec?.signal,
+          maxDepth: 1,
         }
+        const activation = await service.startActivation({
+          provider: config.subagentProvider || 'spawn',
+          label: 'slim: ' + String(args.task_description).slice(0, 40),
+          request,
+          signal: exec?.signal,
+          delivery: 'parent',
+        })
 
-        // 分支 2：DSH 0.1.x 传统 start 支持
-        let run
-        try {
-          if (exec?.signal?.aborted) throw new Error('delegation cancelled before start')
-          run = await service.start(config.subagentProvider || 'spawn', {
-            label: 'slim: ' + String(args.task_description).slice(0, 40),
-            prompt: [{ type: 'text', text: prompt }],
-            parent: exec?.agent,
-            signal: exec?.signal,
-            persona: [
-              '你是一个只做深度研究、不写代码的调研员。',
-              '遵守三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
-              '预算最多 ' + turns + ' 轮，工具调用最多 ' + opts.maxToolCalls + ' 次；接近上限时立刻收束输出。',
-            ].join('\n'),
-          })
-
-          if (typeof run?.result?.then !== 'function') {
-            throw new Error('subagent run returned no result promise; host API shape changed')
-          }
-          const result = await run.result
-          const report = extractReport(result)
-          const stopReason = result?.stopReason || 'unknown'
-          if (!report) {
-            throw new Error('subagent finished with stopReason=' + stopReason + ' but produced no text output')
-          }
-          if (stopReason !== 'completed') {
-            return { report: report + '\n\n[注意] 子代理未正常完成（stopReason=' + stopReason + '），以上为部分结论。' }
-          }
-          return { report }
-        } finally {
-          if (run && typeof run.dispose === 'function') {
-            try {
-              await run.dispose()
-            } catch (error) {
-              try { ctx.logger?.warn?.('[slim-core] subagent dispose failed: ' + String(error)) } catch {}
-            }
+        const childId = activation.childId
+        let report = ''
+        if (ctx.agents && typeof ctx.agents.get === 'function') {
+          const childAgent = ctx.agents.get(childId)
+          if (childAgent && typeof childAgent.whenIdle === 'function') {
+            await childAgent.whenIdle()
+            const events = childAgent.session?.snapshotEvents?.(0) || []
+            const assistantMsgs = events.filter((e) => e.type === 'message' && e.data?.role === 'assistant')
+            const lastMsg = assistantMsgs[assistantMsgs.length - 1]
+            report = extractReport({ output: lastMsg?.data?.content || [] })
           }
         }
+        if (!report) {
+          report = `[子代理 ${childId} 已激活执行。]`
+        }
+        return { report }
       } finally {
-        // 关键安全保证：无论 activation 还是 start、无论是取消还是报错，信号量 100% 释放，彻底杜绝死锁
+        // 关键安全保证：无论取消还是报错，信号量 100% 释放，彻底杜绝死锁
         sem.release()
       }
     },

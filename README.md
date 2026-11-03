@@ -2,13 +2,13 @@
 
 面向消费级显卡本地小模型（1.7B–8B）与短上下文（4K–8K）环境的 DeepSeek Harness (DSH) 预设插件。通过“窄主代理 + 隔离子代理”的分工架构，在降低主窗口上下文开销的同时，提供受控的联网搜索与子代理多步研究能力。
 
-[![Version](https://img.shields.io/badge/version-0.3.0--alpha.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0--alpha.2-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.1%20(0.2.1--rc.5%20verified)-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
 [![CI](https://github.com/langtune1111/dsh-slim-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/langtune1111/dsh-slim-agent/actions)
 
 > ⚠️ **项目状态与环境说明**
-> - 当前版本：`0.3.0-alpha.1`。**0.3.0 起移除 `task_complete`**（其 `concludeTurn()` 会丢弃最终答复，实测 3 次调用 3 次空答复），主代理工具面由 6 降为 5，并新增 `tools/pre-execute` 执行期白名单硬闸。
+> - 当前版本：`0.3.0-alpha.2`。**0.3.0 起移除 `task_complete`**（其 `concludeTurn()` 会丢弃最终答复，实测 3 次调用 3 次空答复），主代理工具面由 6 降为 5，并新增 `tools/pre-execute` 执行期白名单硬闸。
 > - 上一版 `0.2.3-beta.1` 已在 **DSH desktop 0.2.1-rc.5 (Windows / 本地环境)** 上完成端到端联调与原生 `startActivation` 验证。
 > - 本项目不包含虚构的性能跑分数字；固定开销数据均由透明脚本测量或经验估算得到（见第四节「开源复现指南」）。
 > - `bash` 工具默认要求宿主提供沙箱接口 (`ctx.subprocess.spawn`)；在无沙箱的宿主上会明确报错拒绝执行。
@@ -156,7 +156,7 @@
 
 ### 3. 四种 Agent 配置 × 五档上下文窗口 横向实测（2026-11-03）
 
-> ⚠️ **本节数据采自 `0.2.3-beta.1`**：当时主代理仍是 6 个工具（含 `task_complete`）。`0.3.0-alpha.1` 移除该工具后的数据尚未重新测量，见 [联网研究专项实验方案](benchmark/history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN.md)。
+> ⚠️ **本节数据采自 `0.2.3-beta.1`**：当时主代理仍是 6 个工具（含 `task_complete`）。`0.3.0-alpha.1` 移除该工具后的数据见 [联网研究专项实验方案](benchmark/history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN.md)。
 
 在一台只有 6 GB 显存的消费级机器上，用 `llama.cpp` 本地服务两个真实 GGUF 模型，对比本插件预设、DSH 标准模式、DSH 极简模式与 `pi` agent 在 2K / 4K / 8K / 64K / 256K 五档窗口下的端到端表现。**共 72 次受控运行，token 数与耗时全部由线路上的计量代理记录，不是估算。**
 

@@ -1,11 +1,11 @@
 {
     "name":  "dsh-slim-agent",
     "version":  "0.2.0-beta.1",
-    "description":  "闈㈠悜娑堣垂绾ф樉鍗￠儴缃茬殑涓皬妯″瀷锛?.7B-8B锛夛細8K 涓婁笅鏂囦笅鍏煎叿鍏?Key 鑱旂綉绾跨储涓庡繀瑕佷唬鐮佸伐鍏凤紝涓讳唬鐞?6 宸ュ叿鐧藉悕鍗曘€佸瓙浠ｇ悊闅旂娣卞害鐮旂┒銆?瀹為獙鎬э紝0.2.0-beta.1)",
+    "description":  "闂堛垹鎮滃☉鍫ｅ瀭缁狙勬▔閸楋繝鍎寸純鑼畱娑擃厼鐨Ο鈥崇€烽敍?.7B-8B閿涘绱?K 娑撳﹣绗呴弬鍥︾瑓閸忕厧鍙块崗?Key 閼辨梻缍夌痪璺ㄥ偍娑撳骸绻€鐟曚椒鍞惍浣镐紣閸忓嚖绱濇稉璁冲敩閻?6 瀹搞儱鍙块惂钘夋倳閸楁洏鈧礁鐡欐禒锝囨倞闂呮梻顬囧ǎ鍗炲閻梻鈹掗妴?鐎圭偤鐛欓幀褝绱?.2.0-beta.1)",
     "type":  "module",
     "main":  "index.js",
     "scripts":  {
-                    "test":  "node --test \"tests/*.test.mjs\"",
+                    "test":  "node --test",
                     "estimate":  "node benchmark/token-counter.mjs"
                 },
     "repository":  {

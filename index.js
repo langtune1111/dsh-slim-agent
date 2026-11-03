@@ -84,6 +84,17 @@ export function install(logger, config = {}) {
 
     const begin = original.indexOf(BEGIN)
     const end = original.indexOf(END)
+
+    // 单边残缺标记防御：如果只发现 BEGIN 或只发现 END，说明用户可能手动修改损坏了标记
+    // 此时拒绝盲目拼接，防止清空/截断标记之后的用户自定义内容
+    if ((begin >= 0 && end === -1) || (begin === -1 && end >= 0)) {
+      logger?.warn?.(
+        '[dsh-slim-agent] corrupted managed block markers in ' + patchPath +
+        ' (found one marker without its closing pair). Aborting auto-install to prevent truncating config.'
+      )
+      return { ok: false, error: 'corrupted-markers' }
+    }
+
     // 归一化拼接：块前只保留一个空行分隔，块后不留尾随内容，
     // 这样第二次运行的产物与第一次逐字节相同（幂等）。
     const head = (begin >= 0 ? original.slice(0, begin) : original).trimEnd()

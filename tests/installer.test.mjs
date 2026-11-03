@@ -56,6 +56,26 @@ test('install: 覆盖前生成 .bak 备份', () => {
   })
 })
 
+test('install: 单边残缺标记（只有 BEGIN 或只有 END）时拒绝写入，防止截断配置', () => {
+  withHome((home) => {
+    const patchPath = join(home, 'cordis.patch.yml')
+
+    // 1. 只有 BEGIN，没有 END
+    writeFileSync(patchPath, '# user header\n# --- dsh-slim-agent managed block (auto-generated; do not edit) ---\n# user tail\n', 'utf8')
+    const res1 = install(logger)
+    assert.equal(res1.ok, false)
+    assert.equal(res1.error, 'corrupted-markers')
+    assert.match(readFileSync(patchPath, 'utf8'), /# user tail/, '不得损坏原文件内容')
+
+    // 2. 只有 END，没有 BEGIN
+    writeFileSync(patchPath, '# user header\n# --- end dsh-slim-agent managed block ---\n# user tail\n', 'utf8')
+    const res2 = install(logger)
+    assert.equal(res2.ok, false)
+    assert.equal(res2.error, 'corrupted-markers')
+    assert.match(readFileSync(patchPath, 'utf8'), /# user tail/, '不得损坏原文件内容')
+  })
+})
+
 test('install: autoInstall=false 时完全不写盘', () => {
   withHome((home) => {
     const result = install(logger, { autoInstall: false })

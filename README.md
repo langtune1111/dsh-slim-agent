@@ -3,12 +3,12 @@
 > 让 1.7B–8B 的本地小模型，在 **4K–8K 上下文**里获得接近完整 Agent 的工作能力。
 > 手段不是把 Prompt 压到极限，而是**分工**：主代理只做调度，重活交给隔离子代理。
 
-[![Version](https://img.shields.io/badge/version-0.2.0--beta.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
+[![Version](https://img.shields.io/badge/version-0.2.1--beta.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-%3E%3D0.1.7--rc.1%20%7C%200.2.x%20unverified-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.1%20(0.2.1--rc.5%20verified)-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-> ⚠️ **实验性项目（0.2.0-beta.1）**
-> - 仅在 **DSH desktop 0.1.2-rc.1 / Windows / 单个本地环境**上完成端到端验证；0.2.x 未验证。
+> ⚠️ **实验性项目（0.2.1-beta.1）**
+> - 已在 **DSH desktop 0.2.1-rc.5 (Windows / 本地环境)** 上完成端到端联调与原生 startActivation 验证。
 > - 性能数字为**设计目标或估算**，不是多环境实测结果（见 [测量方法](#测量方法)）。
 > - `bash` 工具默认要求宿主沙箱；在没有沙箱的宿主上它会**明确报错**而不是降级执行。
 > - **不要**在存有敏感数据、且你无法接受自主执行的机器上安装后直接放开使用。
@@ -70,7 +70,7 @@
 ```bash
 dsh plugin add dsh-slim-agent
 # 离线：下载 Release 里的 tgz 后
-dsh plugin add ./dsh-slim-agent-0.2.0-beta.1.tgz
+dsh plugin add ./dsh-slim-agent-0.2.1-beta.1.tgz
 ```
 
 安装后**重启两次 DSH**：第一次启动时安装器把声明写进 `~/.dsh/cordis.patch.yml`，第二次启动后模式才会出现在列表里。
@@ -161,7 +161,7 @@ node benchmark/run.mjs --summary
 
 ---
 
-## 0.2.0-beta.1 破坏性变更
+## 0.2.1-beta.1 破坏性变更
 
 | 变更 | 影响 |
 |---|---|

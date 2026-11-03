@@ -145,17 +145,19 @@ async function searchWikipedia(query, signal) {
  * 搜索：宿主 provider 优先，其次 DuckDuckGo，最后 Wikipedia。
  * 这是**顺序降级链**，不是交叉验证。
  */
-async function searchWeb(ctx, query, opts) {
+export async function searchWeb(ctx, query, opts) {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), opts.timeoutMs)
   try {
-    if (opts.mode !== 'builtin' && ctx?.web && typeof ctx.web.search === 'function') {
+    // 只有非 builtin 模式，才尝试调用宿主 ctx.web.search
+    if (opts.searchEngine !== 'builtin' && ctx?.web && typeof ctx.web.search === 'function') {
       try {
         const r = await ctx.web.search({ query, maxResults: opts.maxResults }, ctl.signal)
         if (Array.isArray(r?.sources) && r.sources.length) return { engine: 'host', items: r.sources }
       } catch {}
     }
-    if (opts.mode !== 'host') {
+    // 只有非 host 模式，才调用内置免 Key 搜索（DuckDuckGo / Wikipedia 降级链）
+    if (opts.searchEngine !== 'host') {
       let items = await searchDuckDuckGo(query, ctl.signal)
       if (items.length) return { engine: 'duckduckgo', items }
       items = await searchWikipedia(query, ctl.signal)
@@ -194,8 +196,8 @@ export class AsyncSemaphore {
 
 /**
  * 探测宿主子代理能力并返回调用方式。
- * DSH 0.1.x：ctx.subagents.start(name, request) → { id, localAgent, result, dispose }
- * DSH 0.2.x：官方改用 startActivation —— 本机无 0.2.x，**未经验证**，仅做存在性分支。
+ * DSH 0.2.x：ctx.subagents.startActivation(spec)
+ * DSH 0.1.x：ctx.subagents.start(name, request)
  */
 export function detectSubagentApi(service) {
   if (!service || typeof service !== 'object') return null
@@ -268,33 +270,71 @@ export function apply(ctx, config = {}) {
         const command = String(args.command ?? '')
         if (command.trim() === '') return { output: 'No command provided.' }
 
-        if (opts.bash === 'sandbox' && !bashSandboxAvailable) {
-          audit({ kind: 'bash', policy: 'sandbox', refused: 'no-sandbox-service', command })
-          throw new Error('bash unavailable: host exposes no sandboxed shell (ctx.subprocess.spawn). Set bash: "local" in the preset config to allow unsandboxed execution.')
+        const cwd = exec?.agent?.session?.header?.cwd || process.cwd()
+        const startedAt = Date.now()
+
+        // 策略 1: sandbox 沙箱执行（默认基线）
+        if (opts.bash === 'sandbox') {
+          if (!bashSandboxAvailable) {
+            audit({ kind: 'bash', policy: 'sandbox', refused: 'no-sandbox-service', command })
+            throw new Error('bash unavailable: host exposes no sandboxed shell (ctx.subprocess.spawn). Set bash: "local" in the preset config to allow unsandboxed execution.')
+          }
+
+          const isWin = process.platform === 'win32'
+          const shellArgv = isWin
+            ? ['powershell.exe', '-NoProfile', '-Command', command]
+            : ['bash', '-c', command]
+
+          try {
+            const handle = ctx.subprocess.spawn({
+              argv: shellArgv,
+              cwd,
+              stdio: { stdin: 'ignore', stdout: { maxBytes: 64 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+              graceMs: 5000,
+              signal: exec?.signal,
+            })
+            const outcome = await handle.done
+            let stdout = ''
+            let stderr = ''
+            try {
+              stdout = handle.collected?.stdout?.readFrom?.(0)?.text ?? ''
+              stderr = handle.collected?.stderr?.readFrom?.(0)?.text ?? ''
+            } catch {}
+            const exitCode = outcome?.exitCode ?? (outcome?.signal ? 1 : 0)
+            let text = stdout.trim()
+            if (stderr.trim()) text += (text ? '\n' : '') + '[stderr]\n' + stderr.trim()
+            if (!text) text = '(no output)'
+            audit({ kind: 'bash', policy: 'sandbox', command, cwd, exit: exitCode, ms: Date.now() - startedAt })
+            return { output: text.length > 4000 ? text.slice(0, 4000) + '\n...(truncated ' + text.length + ' chars)' : text }
+          } catch (error) {
+            audit({ kind: 'bash', policy: 'sandbox', command, cwd, exit: 1, ms: Date.now() - startedAt })
+            throw error
+          }
         }
 
+        // 策略 2: local 本地降级执行（显式允许）
         if (opts.bash === 'local') {
           const hit = DANGEROUS.find((re) => re.test(command))
           if (hit) {
             audit({ kind: 'bash', policy: 'local', refused: 'dangerous-pattern', pattern: String(hit), command })
             throw new Error('command refused by slim-agent policy: it matches a destructive pattern. Narrow the command or run it manually.')
           }
+
+          try {
+            const { stdout, stderr } = await execAsync(command, { cwd, timeout: 60000, maxBuffer: 512 * 1024, windowsHide: true })
+            let text = (stdout || '').trim()
+            if (stderr) text += (text ? '\n' : '') + '[stderr]\n' + stderr.trim()
+            if (!text) text = '(no output)'
+            audit({ kind: 'bash', policy: 'local', command, cwd, exit: 0, ms: Date.now() - startedAt })
+            return { output: text.length > 4000 ? text.slice(0, 4000) + '\n...(truncated ' + text.length + ' chars)' : text }
+          } catch (error) {
+            audit({ kind: 'bash', policy: 'local', command, cwd, exit: error?.code ?? 1, ms: Date.now() - startedAt })
+            const body = String((error?.stdout || '') + (error?.stderr || '') + (error?.message || '')).slice(0, 4000)
+            return { output: '[exit ' + (error?.code ?? 1) + ']\n' + body }
+          }
         }
 
-        const cwd = exec?.agent?.session?.header?.cwd || process.cwd()
-        const startedAt = Date.now()
-        try {
-          const { stdout, stderr } = await execAsync(command, { cwd, timeout: 60000, maxBuffer: 512 * 1024, windowsHide: true })
-          let text = (stdout || '').trim()
-          if (stderr) text += (text ? '\n' : '') + '[stderr]\n' + stderr.trim()
-          if (!text) text = '(no output)'
-          audit({ kind: 'bash', policy: opts.bash, command, cwd, exit: 0, ms: Date.now() - startedAt })
-          return { output: text.length > 4000 ? text.slice(0, 4000) + '\n...(truncated ' + text.length + ' chars)' : text }
-        } catch (error) {
-          audit({ kind: 'bash', policy: opts.bash, command, cwd, exit: error?.code ?? 1, ms: Date.now() - startedAt })
-          const body = String((error?.stdout || '') + (error?.stderr || '') + (error?.message || '')).slice(0, 4000)
-          return { output: '[exit ' + (error?.code ?? 1) + ']\n' + body }
-        }
+        throw new Error('unknown bash policy: ' + opts.bash)
       },
     })
   }
@@ -375,9 +415,6 @@ export function apply(ctx, config = {}) {
       if (api === null) {
         throw new Error('subagent unavailable: this host exposes no subagents service (neither startActivation nor start). Do the work yourself with web_search, or upgrade DSH.')
       }
-      if (api === 'activation') {
-        throw new Error('subagent unavailable: this build exposes startActivation only, which dsh-slim-agent has not verified against a real 0.2.x host yet. Please report your DSH version.')
-      }
 
       const turns = Math.min(Math.max(1, Number(args.max_turns) || opts.maxTurnsDefault), opts.maxTurnsDeep)
       const prompt = [
@@ -386,15 +423,58 @@ export function apply(ctx, config = {}) {
         args.constraints ? '限制：' + args.constraints : '',
         '期望结构：' + args.expected_output,
         '预算：最多 ' + turns + ' 轮。',
+        '单任务工具调用上限：最多 ' + opts.maxToolCalls + ' 次。',
         '',
         '纪律：',
         '1. 用 web_search / web_fetch / read / bash 做多步检索，不要臆测；',
-        '2. 不要把网页原文整段复制出来，只提炼要点并附来源 URL；',
-        '3. 关键结论尽量用两个独立来源交叉核对；无法核实的写进【未验证部分】；',
-        '4. 最后按三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
+        '2. 工具调用最多不超过 ' + opts.maxToolCalls + ' 次，接近上限时立刻整理收束；',
+        '3. 不要把网页原文整段复制出来，只提炼要点并附来源 URL；',
+        '4. 关键结论尽量用两个独立来源交叉核对；无法核实的写进【未验证部分】；',
+        '5. 最后按三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
       ].filter(Boolean).join('\n')
 
       await sem.acquire()
+
+      // 分支 1：DSH 0.2.x 原生支持 startActivation
+      if (api === 'activation') {
+        try {
+          if (exec?.signal?.aborted) throw new Error('delegation cancelled before start')
+          const request = {
+            prompt: [{ type: 'text', text: prompt }],
+            parent: exec?.agent,
+            signal: exec?.signal,
+            maxDepth: 1,
+          }
+          const activation = await service.startActivation({
+            provider: config.subagentProvider || 'spawn',
+            label: 'slim: ' + String(args.task_description).slice(0, 40),
+            request,
+            signal: exec?.signal,
+            delivery: 'parent',
+          })
+
+          const childId = activation.childId
+          let report = ''
+          if (ctx.agents && typeof ctx.agents.get === 'function') {
+            const childAgent = ctx.agents.get(childId)
+            if (childAgent && typeof childAgent.whenIdle === 'function') {
+              await childAgent.whenIdle()
+              const events = childAgent.session?.snapshotEvents?.(0) || []
+              const assistantMsgs = events.filter((e) => e.type === 'message' && e.data?.role === 'assistant')
+              const lastMsg = assistantMsgs[assistantMsgs.length - 1]
+              report = extractReport({ output: lastMsg?.data?.content || [] })
+            }
+          }
+          if (!report) {
+            report = `[子代理 ${childId} 已激活执行。]`
+          }
+          return { report }
+        } finally {
+          sem.release()
+        }
+      }
+
+      // 分支 2：DSH 0.1.x 传统 start 支持
       let run
       try {
         if (exec?.signal?.aborted) throw new Error('delegation cancelled before start')
@@ -403,15 +483,13 @@ export function apply(ctx, config = {}) {
           prompt: [{ type: 'text', text: prompt }],
           parent: exec?.agent,
           signal: exec?.signal,
-          // 子代理保留完整研究工具面；不继承主代理的 6 工具白名单
           persona: [
             '你是一个只做深度研究、不写代码的调研员。',
-            '遵守三轮三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
-            '预算最多 ' + turns + ' 轮；接近上限时立刻收束并输出已有结论。',
+            '遵守三段式输出：【已确认结论】【未验证部分】【建议主代理下一步】。',
+            '预算最多 ' + turns + ' 轮，工具调用最多 ' + opts.maxToolCalls + ' 次；接近上限时立刻收束输出。',
           ].join('\n'),
         })
       } finally {
-        // start 失败时不需要 release 之外的动作
       }
 
       try {
@@ -440,11 +518,6 @@ export function apply(ctx, config = {}) {
   })
 
   /* ── 5. 主代理工具面：6 个，异常时 fail-closed ────────────────────── */
-  /**
-   * fail-closed 的降级副本：复制除 tools 以外的字段。
-   * 用 Object.keys 枚举（不触发 getter），逐键读取放在 try 里 —— 上游 assembly
-   * 本身损坏时，我们既不能放行全量工具，也不能因为读坏字段再次抛错。
-   */
   const withoutTools = (assembly) => {
     const copy = {}
     try {

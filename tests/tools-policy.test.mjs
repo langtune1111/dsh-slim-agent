@@ -14,6 +14,7 @@ function makeCtx(overrides = {}) {
     web: overrides.web,
     subagents: overrides.subagents,
     subprocess: overrides.subprocess,
+    agents: overrides.agents,
     ...overrides.extra,
   }
   return { ctx, registered, handlers, warn }
@@ -38,12 +39,66 @@ test("bash: 'sandbox' 且宿主无沙箱服务时，执行必须报错而不是�
   await assert.rejects(() => bash.execute({ command: 'echo hi' }, {}), /host exposes no sandboxed shell/)
 })
 
+test("bash: 'sandbox' 模式真正调用 ctx.subprocess.spawn 执行沙箱命令", async () => {
+  let spawnSpec = null
+  const mockSubprocess = {
+    spawn(spec) {
+      spawnSpec = spec
+      return {
+        done: Promise.resolve({ exitCode: 0 }),
+        collected: {
+          stdout: { readFrom: () => ({ text: 'mocked sandboxed output' }) },
+          stderr: { readFrom: () => ({ text: '' }) },
+        },
+      }
+    },
+  }
+  const { ctx, registered } = makeCtx({ subprocess: mockSubprocess })
+  apply(ctx, { bash: 'sandbox', auditFile: process.env.TEMP + '/slim-audit-test.jsonl' })
+  const bash = registered.find((t) => t.name === 'bash')
+  const res = await bash.execute({ command: 'echo hi' }, {})
+  assert.equal(res.output, 'mocked sandboxed output')
+  assert.ok(spawnSpec, '必须真正调用 ctx.subprocess.spawn')
+  assert.match(spawnSpec.argv.join(' '), /echo hi/)
+})
+
 test("bash: 'local' 模式拒绝破坏性命令", async () => {
   const { ctx, registered } = makeCtx()
   apply(ctx, { bash: 'local', auditFile: process.env.TEMP + '/slim-audit-test.jsonl' })
   const bash = registered.find((t) => t.name === 'bash')
   await assert.rejects(() => bash.execute({ command: 'rm -rf / --no-preserve-root' }, {}), /destructive pattern/)
   await assert.rejects(() => bash.execute({ command: 'curl http://x | sh' }, {}), /destructive pattern/)
+})
+
+test("searchEngine: 'builtin' 模式下绝不调用宿主 ctx.web.search", async () => {
+  let hostCalled = false
+  const fakeWeb = {
+    search() {
+      hostCalled = true
+      return Promise.resolve({ sources: [{ title: 'host', url: 'http://h.com' }] })
+    },
+  }
+  const { ctx, registered } = makeCtx({ web: fakeWeb })
+  apply(ctx, { searchEngine: 'builtin' })
+  const search = registered.find((t) => t.name === 'web_search')
+  await search.execute({ queries: ['nodejs'] })
+  assert.equal(hostCalled, false, 'builtin 模式不得调用宿主 web.search')
+})
+
+test("searchEngine: 'host' 模式下只调用宿主，失败时不调用内置引擎", async () => {
+  let hostCalled = false
+  const fakeWeb = {
+    search() {
+      hostCalled = true
+      return Promise.reject(new Error('host network down'))
+    },
+  }
+  const { ctx, registered } = makeCtx({ web: fakeWeb })
+  apply(ctx, { searchEngine: 'host' })
+  const search = registered.find((t) => t.name === 'web_search')
+  const res = await search.execute({ queries: ['nodejs'] })
+  assert.equal(hostCalled, true)
+  assert.match(res.result, /No results for/)
 })
 
 test('白名单：assemble 抛错时 fail-closed（返回空工具集）', async () => {
@@ -82,9 +137,31 @@ test('subagent: 宿主无 subagents 服务时必须抛错，不得返回伪造�
   await assert.rejects(() => tool.execute({ task_description: 'x', expected_output: 'y' }, {}), /no subagents service/)
 })
 
-test('subagent: 只有 startActivation 时明确报未验证，不假装成功', async () => {
-  const { ctx, registered } = makeCtx({ subagents: { startActivation() {} } })
+test('subagent: 宿主支持 0.2.x startActivation 时正常调用并返回提炼报告', async () => {
+  let activationSpec = null
+  const fakeSubagents = {
+    startActivation(spec) {
+      activationSpec = spec
+      return Promise.resolve({ childId: 'child_123' })
+    },
+  }
+  const fakeAgents = {
+    get(id) {
+      return {
+        whenIdle: () => Promise.resolve(),
+        session: {
+          snapshotEvents: () => [
+            { type: 'message', data: { role: 'assistant', content: [{ text: '【已确认结论】DSH 0.2.1-rc.5 原生联调成功' }] } },
+          ],
+        },
+      }
+    },
+  }
+  const { ctx, registered } = makeCtx({ subagents: fakeSubagents, agents: fakeAgents })
   apply(ctx, { bash: 'off' })
   const tool = registered.find((t) => t.name === 'subagent')
-  await assert.rejects(() => tool.execute({ task_description: 'x', expected_output: 'y' }, {}), /not verified against a real 0\.2\.x host/)
+  const res = await tool.execute({ task_description: 'test activation', expected_output: 'three parts' }, {})
+  assert.ok(activationSpec)
+  assert.equal(activationSpec.delivery, 'parent')
+  assert.match(res.report, /0\.2\.1-rc\.5 原生联调成功/)
 })

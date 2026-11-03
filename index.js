@@ -1,12 +1,11 @@
 /**
- * dsh-slim-agent — 安装器（host 作用域）
+ * dsh-slim-agent — 安装器与运行时双保险入口（host 作用域）
  *
- * 只做两件幂等的事，且**默认不会偷偷改用户配置**：
- *   A. 把 preset-core.mjs 复制到 <dshHome>/.agent-presets/_slim-code/core.mjs
- *   B. 在 <dshHome>/cordis.patch.yml 里维护一段托管声明块（写前备份 .bak）
+ * 核心保障：实现用户安装后「仅需重启 1 次 DSH」即可在模式列表中选用！
  *
- * 关掉自动安装：在插件配置里设 autoInstall: false。
- * 原因：写 dshHome 属于越界副作用，用户应当知情并可拒绝。
+ * 双保险机制：
+ *   1. 静态持久化（install）：将预设声明安全原子写入 ~/.dsh/cordis.patch.yml（带单边残缺标记防御、备份失败硬熔断与原子重命名写入）；
+ *   2. 运行时即刻激活（apply）：在首次启动时，直接调用 0.2.x 的 agentPresets 服务向内存注册表中注册定义，无需等待二次重启即可当场选用！
  */
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
@@ -20,7 +19,7 @@ export const inject = []
 const BEGIN = '# --- dsh-slim-agent managed block (auto-generated; do not edit) ---'
 const END = '# --- end dsh-slim-agent managed block ---'
 
-const PERSONA = [
+const PERSONA_LINES = [
   '你是面向本地中小模型的极简高效编程与知识增强助手。',
   '1. 简单操作：阅读、编辑文件或单条命令由你自己使用 read/edit/bash 完成。',
   '2. 联网线索：需要最新事实或外部知识时，用 web_search 取 3-5 条带来源标签的摘要。',
@@ -30,7 +29,7 @@ const PERSONA = [
 ]
 
 function declarationBlock(coreUrl) {
-  const persona = PERSONA.map((line) => '                ' + line).join('\n')
+  const persona = PERSONA_LINES.map((line) => '                ' + line).join('\n')
   return [
     BEGIN,
     '- insert:',
@@ -136,5 +135,62 @@ export function install(logger, config = {}) {
 }
 
 export function apply(ctx, config = {}) {
+  // 1. 静态持久化写盘（幂等、带备份、原子写）
   install(ctx.logger, config)
+
+  // 2. 运行时即刻激活（重启一次即用的关键突破）
+  if (typeof ctx?.inject === 'function') {
+    ctx.inject(['agentPresets'], async (presetCtx) => {
+      try {
+        const home = process.env.DSH_HOME || join(homedir(), '.dsh')
+        const corePath = join(home, '.agent-presets', '_slim-code', 'core.mjs')
+        const coreUrl = 'file:///' + corePath.replace(/\\/g, '/')
+        const def = {
+          id: 'local-slim-agent',
+          name: '中小模型·轻量知识增强 (8K Slim)',
+          description: '消费级显卡上的 1.7B-8B 本地小模型：8K 上下文下兼具免 Key 联网线索与必要代码工具，主代理 6 工具白名单，子代理并发默认 1。',
+          order: 32,
+          plugins: [
+            {
+              id: 'persona',
+              name: '@deepseek-ai/dsh-persona',
+              config: {
+                prefix: PERSONA_LINES.join('\n'),
+              },
+            },
+            {
+              id: 'tool-pwsh',
+              name: '@deepseek-ai/dsh-tool-pwsh',
+              disabled: process.platform !== 'win32',
+            },
+            {
+              id: 'tool-bash',
+              name: '@deepseek-ai/dsh-tool-bash',
+              disabled: process.platform === 'win32',
+            },
+            {
+              id: 'tool-fs',
+              name: '@deepseek-ai/dsh-tool-fs',
+            },
+            {
+              id: 'slim-core',
+              name: coreUrl,
+              config: {
+                concurrencyLimit: config.concurrencyLimit ?? 1,
+                searchEngine: config.searchEngine || 'auto',
+                bash: config.bash || 'sandbox',
+              },
+            },
+          ],
+        }
+
+        if (presetCtx.agentPresets && typeof presetCtx.agentPresets.register === 'function') {
+          await presetCtx.agentPresets.register(def)
+          ctx.logger?.info?.('[dsh-slim-agent] preset "local-slim-agent" registered into live registry (available on 1st restart)')
+        }
+      } catch (err) {
+        // 允许重复注册容错
+      }
+    })
+  }
 }

@@ -2,13 +2,14 @@
 
 面向消费级显卡本地小模型（1.7B–8B）与短上下文（4K–8K）环境的 DeepSeek Harness (DSH) 预设插件。通过“窄主代理 + 隔离子代理”的分工架构，在降低主窗口上下文开销的同时，提供受控的联网搜索与子代理多步研究能力。
 
-[![Version](https://img.shields.io/badge/version-0.2.3--beta.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0--alpha.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.1%20(0.2.1--rc.5%20verified)-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
 [![CI](https://github.com/langtune1111/dsh-slim-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/langtune1111/dsh-slim-agent/actions)
 
 > ⚠️ **项目状态与环境说明**
-> - 当前版本：`0.2.3-beta.1`。已在 **DSH desktop 0.2.1-rc.5 (Windows / 本地环境)** 上完成端到端联调与原生 `startActivation` 验证。
+> - 当前版本：`0.3.0-alpha.1`。**0.3.0 起移除 `task_complete`**（其 `concludeTurn()` 会丢弃最终答复，实测 3 次调用 3 次空答复），主代理工具面由 6 降为 5，并新增 `tools/pre-execute` 执行期白名单硬闸。
+> - 上一版 `0.2.3-beta.1` 已在 **DSH desktop 0.2.1-rc.5 (Windows / 本地环境)** 上完成端到端联调与原生 `startActivation` 验证。
 > - 本项目不包含虚构的性能跑分数字；固定开销数据均由透明脚本测量或经验估算得到（见 [数据测量与复现](#数据测量与复现)）。
 > - `bash` 工具默认要求宿主提供沙箱接口 (`ctx.subprocess.spawn`)；在无沙箱的宿主上会明确报错拒绝执行。
 
@@ -25,8 +26,8 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 主代理 (Main Agent) — 运行于 4K/8K 短上下文                              │
 │ • 固定开销：约 0.9K ~ 1.2K tokens (含 tool-fs)                          │
-│ • 仅暴露 6 个基础工具：                                                  │
-│   read        edit        bash        web_search       task_complete    │
+│ • 仅暴露 5 个基础工具：                                                  │
+│   read        edit        bash        web_search       subagent        │
 └─────────────────────────────────────┬───────────────────────────────────┘
                                       │ 遇到多网页阅读 / 深度资料比对
                                       ▼ 委派子代理 (subagent)
@@ -44,17 +45,16 @@
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 主代理 6 个工具职责
+### 主代理 5 个工具职责
 
 | 工具 | 来源 | 职责说明 |
 |---|---|---|
 | `read` / `edit` | `@deepseek-ai/dsh-tool-fs` | 标准文件读取与单处精确修改，受宿主工作区沙箱约束 |
 | `bash` | 本插件 | 单条命令执行。默认由 `ctx.subprocess.spawn` 监管，绑定工作区并写审计日志 |
 | `web_search` | 本插件 | 仅返回 3–5 条 `[来源标签] [标题](URL) (年份) - 一行摘要`，**不返回网页正文** |
-| `task_complete` | 本插件 | 显式收尾原语，调用 `exec.concludeTurn()` 阻断小模型无意义后续调用 |
 | `subagent` | 本插件 | 委派子代理执行深度研究，通过原生 `startActivation` 调度，只回传提炼报告 |
 
-主代理工具白名单具备 **fail-closed** 机制：`system-prompt/assemble` 过滤异常时返回空工具集，避免意外放行全量外来插件工具。
+主代理工具白名单具备 **fail-closed** 机制：`system-prompt/assemble` 过滤异常时返回空工具集；同时用 `tools/pre-execute` 做执行期硬闸——只在列工具时过滤不够，DSH 的 `fs-observation-policy` 会在模型读过文件后中途注册 `write` / `read_image`，那一轮不再走 assemble，越界工具会漏给模型（实测 `slim@65536` T2 第 4 次调用起工具数由 6 变 8）。
 
 ---
 
@@ -63,7 +63,7 @@
 客观评估“窄主宽子”架构的技术利弊与适用边界：
 
 ### 优势 (Advantages)
-1. **主上下文开销受控**：主代理工具面收窄至 6 个基础工具，固定 Schema 开销显著降低，为实际任务留出 85%+ 上下文空间，缓解小模型因工具冗余导致的格式与选择错误。
+1. **主上下文开销受控**：主代理工具面收窄至 5 个基础工具，固定 Schema 开销显著降低，为实际任务留出 85%+ 上下文空间，缓解小模型因工具冗余导致的格式与选择错误。
 2. **长篇网页正文物理隔离**：检索与长文阅读限制在独立的子代理会话中完成，原始 HTML/Markdown 不回流到主上下文，杜绝 4K/8K 窗口的直接溢出。
 3. **显存并发防护**：通过异步信号量限制子代理并发为 1（默认，可配置），保证单卡本地部署时主子代理分时复用推理通道，避免多代理并发抢占显存引发 OOM。
 4. **自洽免 Key 检索线索**：内置 DuckDuckGo / Wikipedia 降级检索链，辅以来源分类标签（`[源码仓库]`、`[文档站]`、`[社区讨论]`、`[百科]`）与年份线索，降低时效性问题上的盲目虚构。
@@ -133,6 +133,45 @@
   - Windows (Node 20 / 22): 全部通过（耗时约 41s）
   - Ubuntu (Node 20 / 22): 全部通过（耗时约 26s）
   - macOS (Node 20 / 22): 全部通过（耗时约 33s）
+
+---
+
+### 3. 四种 Agent 配置 × 五档上下文窗口 横向实测（2026-11-03）
+
+> ⚠️ **本节数据采自 `0.2.3-beta.1`**：当时主代理仍是 6 个工具（含 `task_complete`）。`0.3.0-alpha.1` 移除该工具后的数据尚未重新测量，见 [已排期的联网研究专项实验](benchmark/web-research/PLAN.md)。
+
+在一台只有 6 GB 显存的消费级机器上，用 `llama.cpp` 本地服务两个真实 GGUF 模型，对比本插件预设、DSH 标准模式、DSH 极简模式与 `pi` agent 在 2K / 4K / 8K / 64K / 256K 五档窗口下的端到端表现。**共 72 次受控运行，token 数与耗时全部由线路上的计量代理记录，不是估算。**
+
+**固定开销（首轮 prompt tokens，含工具 schema）**
+
+| 配置 | 工具数 | LFM3 1.7B | Qwen3.5 4B | 占 8K 窗口 |
+|---|---|---|---|---|
+| **slim-agent（本插件）** | 6 | **1,289** | 1,401 | 15.7% ~ 17.1% |
+| DSH 标准模式 | 24 | 6,073 | 6,186 | **74.1% ~ 75.5%** |
+| DSH 极简模式 | 2 | 895 | 974 | 10.9% ~ 11.9% |
+| `pi` agent | 4 | 1,441 | 1,567 | 17.6% ~ 19.1% |
+
+**通过率（每格 2 个任务：写文件+执行、读文件取数）**
+
+| 配置 | LFM3 2K | 4K | 8K | 64K | 256K | Qwen3.5 2K | 4K | 8K | 64K | 256K |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **slim-agent** | 0/2 | 0/2 | 1/2 | 1/2 | 2/2 | 0/2 | 0/2 | 1/2 | 1/2 | N/A |
+| DSH 标准 | 0/2 | 0/2 | 0/2 | 2/2 | 1/2 | 0/2 | 0/2 | 0/2 | 1/2 | N/A |
+| DSH 极简 | 0/2 | 0/2 | 2/2 | 2/2 | 2/2 | 0/2 | 0/2 | 2/2 | 2/2 | N/A |
+| `pi` agent | 0/2 | 0/2 | 2/2 | 2/2 | 2/2 | 0/2 | 0/2 | 2/2 | 2/2 | N/A |
+
+**四条硬结论**
+
+1. **2K 窗口对四套配置全部不可用**，且原因完全相同：框架把 `max_tokens` 夹到 `1`，模型只能吐 1 个 token。小模型 Agent 的现实下限是 4K，且必须把工具面压到 1K 以内。
+2. **8K 窗口是分水岭**：标准模式 24 个工具吃掉 74% 窗口，只剩 1 token 生成预算，实测两次全部失败；本插件（6 工具 / 1.3K）与极简、pi 均可正常完成工具调用。
+3. **端到端速度 `pi` 最快、本插件最慢**：同任务下 `pi` 约为本插件的 1/3 耗时。插件把 6 个工具 + 5 条系统规则塞进主代理，换来检索与子代理能力，代价是小模型更容易进入多轮工具循环——这与"时间换空间"的定位一致。
+4. **256K 能不能跑取决于模型架构**：LFM3 是滑窗注意力，同一张 6 GB 卡上真的开得出 256K；Qwen3.5 4B 的全注意力 KV 需要 8–9 GB，三种 offload 组合均 OOM。
+
+**实测暴露并已修复的缺陷**：`preset-core.mjs` 原本的 `inject` 只声明了 `['tools','systemPrompt']`，却在代码里访问 `ctx.subprocess` / `ctx.subagents` / `ctx.agents` / `ctx.web`。在严格作用域的宿主上会直接抛 `cannot get property "subprocess" without inject`，插件整体不挂载——连白名单钩子都装不上，主代理反而会看到宿主全部工具。现已改为声明 `subprocess` / `subagents` 为必需、`web` / `agents` 经 `optionalService()` 可选读取，26 项单测与端到端复跑均通过。
+
+**仍待修复（报告第 8.2 节）**：白名单只在 `system-prompt/assemble` 时过滤。若模型先 `read` 一次文件，DSH 的 `fs-observation-policy` 会在运行中途补注册 `write` / `read_image`，这两个越界工具会漏给模型（`slim@65536` T2 实测第 4 次调用起工具数从 6 变 8）。建议改用 `tools/pre-execute` 做执行期硬闸。
+
+> 📄 **完整报告（环境数据、逐次明细、失效证据、复现命令）** → [benchmark/REPORT-2026-11-03-llamacpp.md](benchmark/REPORT-2026-11-03-llamacpp.md)
 
 ---
 

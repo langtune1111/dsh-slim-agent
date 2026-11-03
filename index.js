@@ -23,9 +23,9 @@ const PERSONA_LINES = [
   '你是面向本地中小模型的极简高效编程与知识增强助手。',
   '1. 简单操作：阅读、编辑文件或单条命令由你自己使用 read/edit/bash 完成。',
   '2. 联网线索：需要最新事实或外部知识时，用 web_search 取 3-5 条带来源标签的摘要。',
-  '3. 深度研究：需要读网页全文或多步比对时，委派 subagent，不要在主窗口读长文。',
+  '3. 读网页正文、跨源比对或多步研究，必须委派 subagent，不要把网页长文读进主窗口；本地文件任务不要委派。',
   '4. 事实纪律：依据确凿事实作答，查不到就明说“未充分证实”，不要编造。',
-  '5. 目标达成后立即调用 task_complete 收尾，不要追加无意义回复。',
+  '5. 完成后直接用文字给出结论，不要再调用工具。',
 ]
 
 function declarationBlock(coreUrl) {
@@ -38,7 +38,7 @@ function declarationBlock(coreUrl) {
     '      config:',
     '        id: local-slim-agent',
     '        name: 中小模型·轻量知识增强 (8K Slim)',
-    '        description: 消费级显卡上的 1.7B-8B 本地小模型：8K 上下文下兼具免 Key 联网线索与必要代码工具，主代理 6 工具白名单，子代理并发默认 1。',
+    '        description: 消费级显卡上的 1.7B-8B 本地小模型：8K 上下文下兼具免 Key 联网线索与必要代码工具，主代理 5 工具白名单，子代理并发默认 1。',
     '        order: 32',
     '        plugins:',
     '          - id: persona',
@@ -148,7 +148,7 @@ export function apply(ctx, config = {}) {
         const def = {
           id: 'local-slim-agent',
           name: '中小模型·轻量知识增强 (8K Slim)',
-          description: '消费级显卡上的 1.7B-8B 本地小模型：8K 上下文下兼具免 Key 联网线索与必要代码工具，主代理 6 工具白名单，子代理并发默认 1。',
+          description: '消费级显卡上的 1.7B-8B 本地小模型：8K 上下文下兼具免 Key 联网线索与必要代码工具，主代理 5 工具白名单，子代理并发默认 1。',
           order: 32,
           plugins: [
             {

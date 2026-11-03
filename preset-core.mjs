@@ -2,7 +2,9 @@
  * preset-core.mjs — dsh-slim-agent 的唯一实现（预设作用域内挂载）
  *
  * 设计目标：让 1.7B–8B 本地小模型在 4K–8K 上下文里拥有接近完整 Agent 的能力。
- * 手段：主代理只留 6 个工具；重型网页阅读与多步研究交给子代理，只回传提炼结论。
+ * 手段：主代理只留 5 个工具；读完网页正文/跨源比对交给子代理，只回传提炼结论。
+ *      0.3.0-alpha.1 起移除 task_complete：它的 concludeTurn() 会立刻结束回合，
+ *      导致模型写进 summary 的结论被丢弃、最终答复为空（实测 3 次调用 3 次空答复）。
  *
  * 约束（均为本机实测得到，改动前请先看 README 的「已验证形态」）：
  *  - 必须是单文件、只 import `node:` 内建模块（跨文件相对导入在预设作用域解析失败）；
@@ -25,10 +27,39 @@ import { join } from 'node:path'
 const execAsync = promisify(execCb)
 
 export const name = 'dsh-slim-agent-core'
-export const inject = ['tools', 'systemPrompt']
+/**
+ * 必需服务声明。
+ *
+ * Cordis 对**未注入**服务的属性访问会直接抛错（`a?.b` 的短路救不了它），
+ * 实测报错形如 `cannot get property "subprocess" without inject`。
+ * 而 `ctx.get(name)` 只能取到全局可见的服务：`web` / `agents` 可以，
+ * `subprocess` / `subagents` 属于作用域服务，必须写进 inject 才可见。
+ *
+ * 取舍：`subprocess` 与 `subagents` 声明为必需（二者都在 @deepseek-ai/dsh-base 里，
+ * 缺失时本插件会保持未激活而不是带着坏掉的 bash 工具上线）；
+ * `web` 与 `agents` 保持可选，用 ctx.get 读取，宿主关掉 web 时自动退化为内置检索。
+ */
+export const inject = ['tools', 'systemPrompt', 'subprocess', 'subagents']
+
+/**
+ * 读取全局可见的可选服务。三种宿主都能工作：
+ *  - 真实 Cordis：ctx.get(name) 返回服务或 undefined；
+ *  - 精简宿主 / 单元测试替身：没有 ctx.get，服务直接挂在 ctx 上；
+ *  - 严格宿主：访问缺失服务会抛错，这里吞掉并返回 undefined。
+ */
+function optionalService(ctx, name) {
+  try {
+    if (ctx && typeof ctx.get === 'function') return ctx.get(name)
+  } catch {}
+  try {
+    return ctx ? ctx[name] : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** 主代理可见的 6 个工具。read/edit 来自 tool-fs，其余由本模块注册。 */
-const ALLOW = new Set(['read', 'edit', 'bash', 'web_search', 'task_complete', 'subagent'])
+const ALLOW = new Set(['read', 'edit', 'bash', 'web_search', 'subagent'])
 
 /** local 模式下拒绝的命令模式（启发式，不是安全边界）。 */
 const DANGEROUS = [
@@ -149,10 +180,11 @@ export async function searchWeb(ctx, query, opts) {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), opts.timeoutMs)
   try {
-    // 只有非 builtin 模式，才尝试调用宿主 ctx.web.search
-    if (opts.searchEngine !== 'builtin' && ctx?.web && typeof ctx.web.search === 'function') {
+    // 只有非 builtin 模式，才尝试调用宿主 web 服务（宿主未挂载时 ctx.get 返回 undefined）
+    const hostWeb = optionalService(ctx, 'web')
+    if (opts.searchEngine !== 'builtin' && hostWeb && typeof hostWeb.search === 'function') {
       try {
-        const r = await ctx.web.search({ query, maxResults: opts.maxResults }, ctl.signal)
+        const r = await hostWeb.search({ query, maxResults: opts.maxResults }, ctl.signal)
         if (Array.isArray(r?.sources) && r.sources.length) return { engine: 'host', items: r.sources }
       } catch {}
     }
@@ -375,23 +407,18 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  /* ── 3. task_complete ────────────────────────────────────────────── */
-  reg({
-    name: 'task_complete',
-    description: 'Call exactly once when the objective is achieved: summarizes and stops further turns.',
-    parameters: {
-      type: 'object',
-      properties: { summary: { type: 'string', description: 'One or two sentences: what was done and the conclusion.' } },
-      required: ['summary'],
-    },
-    output: textOut('status'),
-    async execute(args, exec) {
-      try {
-        if (typeof exec?.concludeTurn === 'function') exec.concludeTurn()
-      } catch {}
-      return { status: '[DONE] ' + String(args.summary ?? '') }
-    },
-  })
+  /* ── 3. （已移除）task_complete ──────────────────────────────────────
+   * 0.2.x 里它调用 exec.concludeTurn() 立即结束回合。concludeTurn 的签名是
+   * `concludeTurn(): void`，不吃任何 payload，插件也无法回注 assistant 文本，
+   * 所以模型写进 summary 的结论被直接丢弃，这一轮只剩工具调用、没有正文，
+   * headless/客户端拿到的最终答复是空字符串。
+   *
+   * 实测（LFM3 1.7B / Qwen3.5 4B，8K 与 64K）：task_complete 被调用 3 次，
+   * 3 次都出现 finish_reason=tool_calls 且最终答复为空；不调用它的同类运行
+   * 大多正常收尾。结论：这个工具在小模型上只会把答复吃掉，收益为零。
+   *
+   * 想要"停下来"的语义，请让模型直接给出文字结论；宿主侧不再需要显式收尾工具。
+   */
 
   /* ── 4. subagent ─────────────────────────────────────────────────── */
   reg({
@@ -451,8 +478,9 @@ export function apply(ctx, config = {}) {
 
         const childId = activation.childId
         let report = ''
-        if (ctx.agents && typeof ctx.agents.get === 'function') {
-          const childAgent = ctx.agents.get(childId)
+        const agents = optionalService(ctx, 'agents')
+        if (agents && typeof agents.get === 'function') {
+          const childAgent = agents.get(childId)
           if (childAgent && typeof childAgent.whenIdle === 'function') {
             await childAgent.whenIdle()
             const events = childAgent.session?.snapshotEvents?.(0) || []
@@ -472,7 +500,7 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  /* ── 5. 主代理工具面：6 个，异常时 fail-closed ────────────────────── */
+  /* ── 5. 主代理工具面：5 个，异常时 fail-closed ────────────────────── */
   const withoutTools = (assembly) => {
     const copy = {}
     try {
@@ -502,6 +530,28 @@ export function apply(ctx, config = {}) {
       try { ctx.logger?.warn?.('[slim-core] whitelist failed, exposing no tools (fail-closed): ' + String(error)) } catch {}
       return withoutTools(assembled)
     }
+  }, { prepend: true })
+
+  /* ── 6. 执行期硬闸（tools/pre-execute）──────────────────────────────
+   * 只靠 assemble 过滤是不够的：DSH 的 fs-observation-policy 会在模型 read
+   * 过文件之后，把 write / read_image 这类工具**中途**注册进来，那一轮不再
+   * 走 assemble，越界工具就漏给了模型（实测 slim@65536 T2 第 4 次调用起
+   * 工具数从 6 变 8）。pre-execute 每次调用都会过，用它兜住。
+   *
+   * 子代理会话必须放行：子代理的工具面本来就该是宽的。 */
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    try {
+      const header = exec?.agent?.session?.header ?? exec?.session?.header
+      if (header === undefined) return next()
+      const isChild = header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0
+      if (isChild) return next()
+      const name = exec?.name ?? exec?.tool?.name ?? exec?.call?.name
+      if (typeof name === 'string' && name !== '' && !ALLOW.has(name)) {
+        try { ctx.logger?.warn?.('[slim-core] denied out-of-whitelist tool: ' + name) } catch {}
+        return { kind: 'deny', reason: `[slim] tool "${name}" is outside the main-agent whitelist` }
+      }
+    } catch {}
+    return next()
   }, { prepend: true })
 
   return () => {

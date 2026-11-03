@@ -20,10 +20,10 @@ function makeCtx(overrides = {}) {
   return { ctx, registered, handlers, warn }
 }
 
-test('注册的工具集合固定：bash / web_search / task_complete / subagent', () => {
+test('注册的工具集合固定：bash / web_search / subagent（task_complete 已于 0.3.0 移除）', () => {
   const { ctx, registered } = makeCtx()
   apply(ctx, { bash: 'local' })
-  assert.deepEqual(registered.map((t) => t.name).sort(), ['bash', 'subagent', 'task_complete', 'web_search'])
+  assert.deepEqual(registered.map((t) => t.name).sort(), ['bash', 'subagent', 'web_search'])
 })
 
 test("bash: 'off' 时不注册 bash", () => {
@@ -112,13 +112,13 @@ test('白名单：assemble 抛错时 fail-closed（返回空工具集）', async
   assert.deepEqual(result.tools, [])
 })
 
-test('白名单：主代理只剩允许的 6 个工具名', async () => {
+test('白名单：主代理只剩允许的 5 个工具名', async () => {
   const { ctx, handlers } = makeCtx()
   apply(ctx, { bash: 'off' })
   const hook = handlers.find((h) => h.event === 'system-prompt/assemble')
   const tools = ['read', 'edit', 'write', 'glob', 'bash', 'web_search', 'task_complete', 'subagent', 'mcp__x', 'skill'].map((n) => ({ name: n }))
   const result = await hook.fn({}, { agent: { session: { header: {} } } }, async () => ({ tools }))
-  assert.deepEqual(result.tools.map((t) => t.name).sort(), ['bash', 'edit', 'read', 'subagent', 'task_complete', 'web_search'])
+  assert.deepEqual(result.tools.map((t) => t.name).sort(), ['bash', 'edit', 'read', 'subagent', 'web_search'])
 })
 
 test('白名单：子代理会话不受限制', async () => {
@@ -190,4 +190,40 @@ test('subagent: 启动异常时信号量 100% 释放，后续调用绝不死锁'
     /simulated subagent start crash/
   )
   assert.equal(callCount, 2, '必须成功进入第二次执行，证明锁已彻底归还')
+})
+
+test('执行期硬闸：主代理调用白名单外的工具会被 deny（assemble 漏掉也拦得住）', async () => {
+  const { ctx, handlers } = makeCtx()
+  apply(ctx, { bash: 'off' })
+  const hook = handlers.find((h) => h.event === 'tools/pre-execute')
+  assert.ok(hook, 'tools/pre-execute 钩子必须注册')
+  let nextCalled = false
+  const decision = await hook.fn(
+    { name: 'write', agent: { session: { header: {} } } },
+    async () => { nextCalled = true; return { kind: 'allow' } },
+  )
+  assert.equal(decision.kind, 'deny')
+  assert.equal(nextCalled, false)
+})
+
+test('执行期硬闸：子代理会话不受限制，且白名单内工具正常放行', async () => {
+  const { ctx, handlers } = makeCtx()
+  apply(ctx, { bash: 'off' })
+  const hook = handlers.find((h) => h.event === 'tools/pre-execute')
+
+  let childNext = false
+  const childDecision = await hook.fn(
+    { name: 'write', agent: { session: { header: { origin: 'subagent' } } } },
+    async () => { childNext = true; return { kind: 'allow' } },
+  )
+  assert.equal(childDecision.kind, 'allow')
+  assert.equal(childNext, true)
+
+  let rootNext = false
+  const rootDecision = await hook.fn(
+    { name: 'read', agent: { session: { header: {} } } },
+    async () => { rootNext = true; return { kind: 'allow' } },
+  )
+  assert.equal(rootDecision.kind, 'allow')
+  assert.equal(rootNext, true)
 })

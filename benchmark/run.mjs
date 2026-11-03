@@ -144,14 +144,19 @@ function buildPayload() {
   return { parts, system, tools }
 }
 
-async function requestPromptTokens(base, body) {
+async function requestPromptTokens(base, body, key) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (key) headers['Authorization'] = 'Bearer ' + key
   const res = await fetch(base.replace(/\/$/, '') + '/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(60000),
   })
-  if (!res.ok) throw new Error('endpoint returned HTTP ' + res.status)
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error('endpoint returned HTTP ' + res.status + ': ' + errText)
+  }
   const data = await res.json()
   return data?.usage?.prompt_tokens ?? null
 }
@@ -159,6 +164,7 @@ async function requestPromptTokens(base, body) {
 async function overhead() {
   const base = arg('base', process.env.LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1')
   const model = arg('model', process.env.LMSTUDIO_MODEL || 'local-model')
+  const key = arg('key', process.env.LM_API_KEY || process.env.OPENAI_API_KEY || '')
   const { system, tools, parts } = buildPayload()
 
   console.log(`正在请求 ${base} 测量模型 [${model}] 的首轮真实固定开销...`)
@@ -172,7 +178,7 @@ async function overhead() {
     max_tokens: 1,
     temperature: 0,
   }
-  const promptTokensWithTools = await requestPromptTokens(base, bodyWithTools)
+  const promptTokensWithTools = await requestPromptTokens(base, bodyWithTools, key)
 
   // 2. 发送不带工具的纯消息调用（用于对照差值）
   const bodyWithoutTools = {
@@ -181,7 +187,7 @@ async function overhead() {
     max_tokens: 1,
     temperature: 0,
   }
-  const promptTokensWithoutTools = await requestPromptTokens(base, bodyWithoutTools)
+  const promptTokensWithoutTools = await requestPromptTokens(base, bodyWithoutTools, key)
 
   const localEstimate = await countTokens(system, { baseUrl: base, model })
   const toolOverhead = (promptTokensWithTools !== null && promptTokensWithoutTools !== null)

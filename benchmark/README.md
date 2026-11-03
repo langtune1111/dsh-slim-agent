@@ -10,14 +10,14 @@
 2. **必填档案头**：每份 `REPORT.md` 顶部必须有「实验编号 / 日期 / 被测版本 / 内容 / 规模 / 状态 / 原始数据」表格。
 3. **原始数据一起入库**：逐次 NDJSON、汇总表、编排脚本日志都放 `data/`，不裁剪、不挑样本。
 4. **不得覆盖**：同一版本重复实验时新建目录并在 slug 后加 `-r2` / `-r3`，不要改写旧报告。
-5. **入口唯一**：仓库根 README 只链接 [`LATEST.md`](LATEST.md)，历史一律从本索引进入。
+5. **入口唯一且直达**：仓库根 README 直接链接**最新一份已完成报告**的 `history/` 路径，不经过任何中转页；新增实验完成时，同步改根 README 第一章那一行链接。
 
 ## 实验列表（按时间倒序）
 
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
-| 2026-11-03 | `0.3.0-alpha.1` | 联网研究能力专项（7 arm × 15 题） | 计划 182 次 | ⏳ 未执行 | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN.md) |
-| 2026-11-03 | `0.2.3-beta.1` | 四种 Agent 配置 × 五档上下文横评 | 72 次 | ✅ 已完成 | [报告](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/REPORT.md) · [数据](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/data/) |
+| 2026-11-03 | `0.3.0-alpha.1` | 联网研究能力专项（7 arm × 15 题） | 计划 182 次 | ⏳ 未执行（当前进行中） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN.md) |
+| 2026-11-03 | `0.2.3-beta.1` | 四种 Agent 配置 × 五档上下文横评 | 72 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/REPORT.md) · [数据](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/data/) |
 
 ## 工具脚本（不属于某次实验）
 

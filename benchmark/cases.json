@@ -53,11 +53,11 @@
       "id": "CASE_B_REALTIME_WORLD_KNOWLEDGE",
       "category": "8K 时效性世界知识检索与信源甄别 (see-world 理念)",
       "title": "最新软件版本发布信息查询与信源权威度校验",
-      "prompt": "请联网查询当前 Node.js 最新的 Active LTS 版本的具体版本号、代号与主要变更点。要求明确给出权威官方信源标签，未证实的事实不得脑补猜测。",
+      "prompt": "请联网查询当前 Node.js 最新的 Active LTS 版本的具体版本号、代号与主要变更点。要求明确给出来源标签（如 [文档站] 或 [源码仓库]），未证实的事实不得脑补猜测。",
       "eval_criteria": {
         "expected_tools": ["web_search", "task_complete"],
         "search_output_max_tokens": 250,
-        "success_definition": "正确命中权威官方信源 [官方/权威]、版本信息真实、附时间戳、无大段 HTML 污染"
+        "success_definition": "正确命中权威信源标签 [文档站] / [源码仓库] / [百科]、版本信息真实、附时间线索、无大段正文污染"
       }
     },
     {

@@ -165,3 +165,29 @@ test('subagent: 宿主支持 0.2.x startActivation 时正常调用并返回提�
   assert.equal(activationSpec.delivery, 'parent')
   assert.match(res.report, /0\.2\.1-rc\.5 原生联调成功/)
 })
+
+test('subagent: 启动异常时信号量 100% 释放，后续调用绝不死锁', async () => {
+  let callCount = 0
+  const failingSubagents = {
+    start() {
+      callCount++
+      return Promise.reject(new Error('simulated subagent start crash'))
+    },
+  }
+  const { ctx, registered } = makeCtx({ subagents: failingSubagents })
+  apply(ctx, { bash: 'off', concurrencyLimit: 1 })
+  const tool = registered.find((t) => t.name === 'subagent')
+
+  // 第一次调用：启动直接报错
+  await assert.rejects(
+    () => tool.execute({ task_description: 'task1', expected_output: 'out' }, {}),
+    /simulated subagent start crash/
+  )
+
+  // 第二次调用：若信号量泄漏，此处由于 concurrencyLimit=1 会永久死锁挂起；若正常释放，会顺利进入第二次执行
+  await assert.rejects(
+    () => tool.execute({ task_description: 'task2', expected_output: 'out' }, {}),
+    /simulated subagent start crash/
+  )
+  assert.equal(callCount, 2, '必须成功进入第二次执行，证明锁已彻底归还')
+})

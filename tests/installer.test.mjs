@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { install } from '../index.js'
@@ -82,5 +82,21 @@ test('install: autoInstall=false 时完全不写盘', () => {
     assert.equal(result.ok, false)
     assert.equal(result.skipped, 'autoInstall-disabled')
     assert.equal(existsSync(join(home, 'cordis.patch.yml')), false)
+  })
+})
+
+test('install: 备份写入失败时硬熔断中止，绝不修改原文件', () => {
+  withHome((home) => {
+    const patchPath = join(home, 'cordis.patch.yml')
+    writeFileSync(patchPath, '# original user content\n', 'utf8')
+
+    // 创建同名 .bak 目录，使得 writeFileSync(backup, ...) 必定抛错（EISDIR/EPERM）
+    const backupPath = patchPath + '.bak'
+    mkdirSync(backupPath)
+
+    const res = install(logger)
+    assert.equal(res.ok, false)
+    assert.equal(res.error, 'backup-failed')
+    assert.equal(readFileSync(patchPath, 'utf8'), '# original user content\n', '原文件必须完好无损')
   })
 })

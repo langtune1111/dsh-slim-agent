@@ -9,7 +9,7 @@
  * 原因：写 dshHome 属于越界副作用，用户应当知情并可拒绝。
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -106,13 +106,27 @@ export function install(logger, config = {}) {
       return { ok: true, unchanged: true, corePath, patchPath }
     }
 
+    // 1. 备份失败硬熔断：若原有配置存在但备份写入失败，立即安全中止，绝不冒着损坏用户配置的风险覆写
     if (original !== '') {
       const backup = patchPath + '.bak'
-      try { writeFileSync(backup, original, 'utf8') } catch (error) {
-        logger?.warn?.('[dsh-slim-agent] could not write backup: ' + String(error))
+      try {
+        writeFileSync(backup, original, 'utf8')
+      } catch (error) {
+        logger?.warn?.('[dsh-slim-agent] backup failed (' + String(error) + '). Aborting auto-install to protect original configuration.')
+        return { ok: false, error: 'backup-failed' }
       }
     }
-    writeFileSync(patchPath, next, 'utf8')
+
+    // 2. 原子安全写入：先写入同目录临时文件，落盘后再原子重命名，防止进程意外崩溃导致半写文件
+    const tmpPath = patchPath + '.tmp-' + process.pid + '-' + Date.now()
+    try {
+      writeFileSync(tmpPath, next, 'utf8')
+      renameSync(tmpPath, patchPath)
+    } catch (writeErr) {
+      try { if (existsSync(tmpPath)) unlinkSync(tmpPath) } catch {}
+      throw writeErr
+    }
+
     logger?.info?.('[dsh-slim-agent] preset declaration written to ' + patchPath + ' (restart DSH to apply)')
     return { ok: true, corePath, patchPath }
   } catch (error) {

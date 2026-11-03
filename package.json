@@ -1,7 +1,7 @@
 {
     "name":  "dsh-slim-agent",
-    "version":  "0.2.1-beta.1",
-    "description":  "面向消费级显卡部署的中小模型（1.7B-8B）：8K 上下文下兼具免 Key 联网线索与必要代码工具，6 工具白名单，原生支持 DSH 0.2.1-rc.5 startActivation 与真沙箱执行。(0.2.1-beta.1)",
+    "version":  "0.2.2-beta.1",
+    "description":  "面向消费级显卡部署的中小模型（1.7B-8B）：8K 上下文下兼具免 Key 联网线索与必要代码工具，6 工具白名单，原生支持 DSH 0.2.1-rc.5 startActivation，真沙箱执行与防死锁信号量。(0.2.2-beta.1)",
     "type":  "module",
     "main":  "index.js",
     "scripts":  {

@@ -155,6 +155,55 @@ async function searchDuckDuckGo(query, signal) {
   }
 }
 
+async function searchBing(query, signal) {
+  try {
+    const res = await fetch('https://www.bing.com/search?q=' + encodeURIComponent(query) + '&setlang=zh-CN', {
+      signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      },
+    })
+    if (!res.ok) return []
+    const html = await res.text()
+    const out = []
+    const re = /<li class="b_algo"[\s\S]*?<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]*?)<\/li>/gi
+    let m
+    while ((m = re.exec(html)) !== null && out.length < 5) {
+      const href = decodeBingHref(m[1])
+      const title = stripTags(m[2])
+      const tail = m[3] || ''
+      const pm = tail.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
+      const snippet = pm ? stripTags(pm[1]) : ''
+      if (title && href && /^https?:\/\//.test(href)) out.push({ title, snippet, url: href })
+    }
+    if (out.length) return out
+    const re2 = /<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
+    let n
+    while ((n = re2.exec(html)) !== null && out.length < 5) {
+      const href = decodeBingHref(n[1])
+      const title = stripTags(n[2])
+      if (title && href && /^https?:\/\//.test(href)) out.push({ title, snippet: '', url: href })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+/** Bing 跳转链接形如 https://www.bing.com/ck/a?...&u=a1<base64url>；解出真实 URL。 */
+function decodeBingHref(raw) {
+  try {
+    if (!raw.includes('bing.com/ck/a')) return raw
+    const u = new URL(raw, 'https://www.bing.com').searchParams.get('u')
+    if (!u) return raw
+    const b64 = u.startsWith('a1') ? u.slice(2) : u
+    return Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+  } catch {
+    return raw
+  }
+}
+
 async function searchWikipedia(query, signal) {
   try {
     const en = /^[a-zA-Z0-9\s._-]+$/.test(query)
@@ -192,6 +241,9 @@ export async function searchWeb(ctx, query, opts) {
     if (opts.searchEngine !== 'host') {
       let items = await searchDuckDuckGo(query, ctl.signal)
       if (items.length) return { engine: 'duckduckgo', items }
+      // DuckDuckGo 在部分网络环境（如中国大陆直连）不可达，退到 Bing
+      items = await searchBing(query, ctl.signal)
+      if (items.length) return { engine: 'bing', items }
       items = await searchWikipedia(query, ctl.signal)
       if (items.length) return { engine: 'wikipedia', items }
     }

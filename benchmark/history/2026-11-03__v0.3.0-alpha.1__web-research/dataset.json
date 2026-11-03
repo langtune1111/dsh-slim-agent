@@ -1,0 +1,312 @@
+{
+  "benchmark": "slim-agent-web-research",
+  "version": "1.0",
+  "benchmark_date": "2026-11-03",
+  "task_count": 15,
+  "tasks": [
+    {
+      "task_id": "A1",
+      "category": "A_realtime",
+      "user_prompt": "Node.js 当前最新的 LTS 是哪个版本？它的代号叫什么？",
+      "expected_answer": "v26.13.0 / Lithium",
+      "required_facts": [
+        "v26\\.13\\.0",
+        "Lithium"
+      ],
+      "required_sources": [
+        "nodejs.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "A2",
+      "category": "A_realtime",
+      "user_prompt": "Python 当前最新的稳定版本号是多少？该版本是哪天发布的？",
+      "expected_answer": "3.15.2 / 2026-10-09",
+      "required_facts": [
+        "3\\.15\\.2",
+        "2026-10-09"
+      ],
+      "required_sources": [
+        "python.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "A3",
+      "category": "A_realtime",
+      "user_prompt": "llama.cpp 最新的正式发布版本 tag 是什么？发布时间是哪天？",
+      "expected_answer": "v0.8.0 / 2026-10-28",
+      "required_facts": [
+        "v?0\\.8\\.0",
+        "2026-10-28"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "B1",
+      "category": "B_crosssource",
+      "user_prompt": "Go 语言当前最新稳定版是哪个版本？它是哪天发布的？请用至少两个互相独立的来源确认。",
+      "expected_answer": "1.27.3 / 2026-08-19",
+      "required_facts": [
+        "1\\.27\\.3",
+        "2026-08-19"
+      ],
+      "required_sources": [
+        "go.dev",
+        "endoflife.date"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "B2",
+      "category": "B_crosssource",
+      "user_prompt": "PostgreSQL 当前最新的主版本号是多少？该主版本下最新的小版本号是多少？",
+      "expected_answer": "18 / 18.6",
+      "required_facts": [
+        "18",
+        "18\\.6"
+      ],
+      "required_sources": [
+        "postgresql.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "B3",
+      "category": "B_crosssource",
+      "user_prompt": "Rust 当前最新的稳定版本号是多少？注意有的资料会列出已过期的旧版本，请说明你依据的是哪一个并给出发布日期。",
+      "expected_answer": "1.99.1 / 2026-10-01",
+      "required_facts": [
+        "1\\.99\\.1",
+        "2026-10-01"
+      ],
+      "required_sources": [
+        "rust-lang.org",
+        "endoflife.date"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2,
+        "must_not_answer": [
+          "1\\.98\\.1"
+        ]
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "C1",
+      "category": "C_multihop",
+      "user_prompt": "Node.js 最新 LTS 与 Python 最新稳定版，两者的发布日期相差多少天？给出计算过程。",
+      "expected_answer": "19",
+      "required_facts": [
+        "19"
+      ],
+      "required_sources": [
+        "nodejs.org",
+        "python.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "C2",
+      "category": "C_multihop",
+      "user_prompt": "Rust 最新稳定版比 Go 最新稳定版晚发布多少天？给出计算过程。",
+      "expected_answer": "43",
+      "required_facts": [
+        "43"
+      ],
+      "required_sources": [
+        "rust-lang.org",
+        "go.dev"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "C3",
+      "category": "C_multihop",
+      "user_prompt": "Python 最新稳定版与 PostgreSQL 最新小版本的发布日期，相差多少个月（向下取整）？",
+      "expected_answer": "12",
+      "required_facts": [
+        "12"
+      ],
+      "required_sources": [
+        "python.org",
+        "postgresql.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "D1",
+      "category": "D_local_plus_web",
+      "user_prompt": "读本地文件 fixtures/D1.md，里面记录了本项目锁定的 Node.js 版本。请联网确认当前最新 LTS，并说明该不该升级。",
+      "expected_answer": "本地 v24，最新 v26.13.0，应当升级",
+      "required_facts": [
+        "v26\\.13\\.0"
+      ],
+      "required_sources": [
+        "nodejs.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1,
+        "must_read_local": true
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "D2",
+      "category": "D_local_plus_web",
+      "user_prompt": "读本地文件 fixtures/D2.md，里面写了本项目的 Python 版本约束。请联网确认当前最新稳定版，并判断该约束是否需要调整。",
+      "expected_answer": "最新 3.15.2，约束需调整",
+      "required_facts": [
+        "3\\.15\\.2"
+      ],
+      "required_sources": [
+        "python.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1,
+        "must_read_local": true
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "D3",
+      "category": "D_local_plus_web",
+      "user_prompt": "读本地文件 fixtures/D3.md，里面记录了项目使用的 Rust 版本。请联网确认当前最新稳定版，并指出落后多少个版本线。",
+      "expected_answer": "本地 1.75，最新 1.99.1",
+      "required_facts": [
+        "1\\.99\\.1"
+      ],
+      "required_sources": [
+        "rust-lang.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1,
+        "must_read_local": true
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "X1",
+      "category": "X_oversize",
+      "user_prompt": "同时查阅 Node.js 官方的 release schedule 与第三方生命周期数据，判断 v26 这个 LTS 线预计在什么时候结束维护，并说明两个来源是否一致。",
+      "expected_answer": "需要给出维护结束日期并比对两个来源",
+      "required_facts": [
+        "26"
+      ],
+      "required_sources": [
+        "nodejs.org",
+        "endoflife.date"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": true
+    },
+    {
+      "task_id": "X2",
+      "category": "X_oversize",
+      "user_prompt": "某项目要求 Python >= 3.14 且 < 3.16，并且必须能一直获得安全更新到 2031 年。请查官方生命周期数据，判断这个要求是否可行，并给出依据。",
+      "expected_answer": "需要判断可行性并引 EOL 日期",
+      "required_facts": [
+        "2031"
+      ],
+      "required_sources": [
+        "python.org",
+        "endoflife.date"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": true
+    },
+    {
+      "task_id": "X3",
+      "category": "X_oversize",
+      "user_prompt": "找出 llama.cpp 从上一个正式版本到当前最新版本之间的破坏性变更，并判断哪些会影响 OpenAI 兼容接口的调用方。",
+      "expected_answer": "需要列出 breaking change 并判断影响面",
+      "required_facts": [
+        "0\\.8\\.0"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": true
+    }
+  ]
+}

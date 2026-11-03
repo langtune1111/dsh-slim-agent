@@ -30,10 +30,8 @@
 >
 > **摘要先记在这里，完整结论跑完回填。**
 >
-> - 📄 [实验报告（含 15 道题的全部题目与判据）](benchmark/web-research/REPORT.md)
-> - 📐 [实验方案（arm 定义、变量控制、计量口径）](benchmark/web-research/PLAN.md)
-> - 🐞 [前置 issue：DSH 输出预算被固定扣掉 4096 tokens](benchmark/web-research/ISSUE-dsh-context-budget.md)
-> - 📊 [上一轮已完成的横向实测（0.2.3-beta.1）](benchmark/REPORT-2026-11-03-llamacpp.md)
+> - 📊 **最新 Benchmark 报告** → [benchmark/LATEST.md](benchmark/LATEST.md)
+>   （唯一对外入口；历史实验从该页进入 [实验档案索引](benchmark/README.md)）
 
 
 在短上下文（4K / 8K）下运行全功能 Agent 时，数十个工具定义与长篇网页正文极易占满上下文窗口，并导致小模型产生工具选择幻觉。本插件采用“窄主代理 + 宽子代理”的分工模型：
@@ -157,7 +155,7 @@
 
 ### 3. 四种 Agent 配置 × 五档上下文窗口 横向实测（2026-11-03）
 
-> ⚠️ **本节数据采自 `0.2.3-beta.1`**：当时主代理仍是 6 个工具（含 `task_complete`）。`0.3.0-alpha.1` 移除该工具后的数据尚未重新测量，见 [已排期的联网研究专项实验](benchmark/web-research/PLAN.md)。
+> ⚠️ **本节数据采自 `0.2.3-beta.1`**：当时主代理仍是 6 个工具（含 `task_complete`）。`0.3.0-alpha.1` 移除该工具后的数据尚未重新测量，见 [联网研究专项实验方案](benchmark/history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN.md)。
 
 在一台只有 6 GB 显存的消费级机器上，用 `llama.cpp` 本地服务两个真实 GGUF 模型，对比本插件预设、DSH 标准模式、DSH 极简模式与 `pi` agent 在 2K / 4K / 8K / 64K / 256K 五档窗口下的端到端表现。**共 72 次受控运行，token 数与耗时全部由线路上的计量代理记录，不是估算。**
 
@@ -190,7 +188,7 @@
 
 **仍待修复（报告第 8.2 节）**：白名单只在 `system-prompt/assemble` 时过滤。若模型先 `read` 一次文件，DSH 的 `fs-observation-policy` 会在运行中途补注册 `write` / `read_image`，这两个越界工具会漏给模型（`slim@65536` T2 实测第 4 次调用起工具数从 6 变 8）。建议改用 `tools/pre-execute` 做执行期硬闸。
 
-> 📄 **完整报告（环境数据、逐次明细、失效证据、复现命令）** → [benchmark/REPORT-2026-11-03-llamacpp.md](benchmark/REPORT-2026-11-03-llamacpp.md)
+> 📄 **完整报告（环境数据、逐次明细、失效证据、复现命令）** → [benchmark/history/…/REPORT.md](benchmark/history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/REPORT.md)
 
 ---
 

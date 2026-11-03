@@ -35,7 +35,7 @@
 | 2 | `task_complete` 的 `concludeTurn()` 丢弃最终答复 | ✅ 已移除该工具 |
 | 3 | 白名单被 `fs-observation-policy` 中途注册的 `write`/`read_image` 绕过 | ✅ 已加 `tools/pre-execute` 执行期硬闸 + 2 条单测 |
 | 4 | 版本号统一（README / package.json / tgz / 测试副本） | ✅ `0.3.0-alpha.1`；tgz 需在开跑前重新 `npm pack` |
-| 5 | **输出预算算法**：`max_tokens=1` 的运行不得进入通过率统计 | ⚠️ 根因已定位（`pi-ai` 的 `CONTEXT_SAFETY_TOKENS = 4096`），见 [ISSUE-dsh-context-budget.md](../ISSUE-dsh-context-budget.md)；在官方修好前按 §7.3 隔离 |
+| 5 | **输出预算算法**：`max_tokens=1` 的运行不得进入通过率统计 | ⚠️ 根因已定位（`pi-ai` 的 `CONTEXT_SAFETY_TOKENS = 4096`），见 [ISSUE-dsh-context-budget.md](ISSUE-dsh-context-budget.md)；在官方修好前按 §7.3 隔离 |
 | 6 | 子代理的 LLM 调用必须被单独计量 | ⚠️ 需在计量代理侧按 session 归属拆分，见 §6 |
 
 > 第 5 项是硬门槛：在它解决之前，**4K 不进入主表**。
@@ -140,7 +140,7 @@ enableTaskComplete: false   # true  → 回填 0.2.x 的旧 task_complete（仅 
 
 - 出题前先抓官方页面快照（`sources.json`），记 URL / 发布时间 / `sha256` / 摘录；
 - 题目一律取自 `benchmark_date - 14~30 天` 内的发布，确保两个模型的训练知识覆盖不到；
-- 快照落盘 `benchmark/web-research/sources/`，实验期间不改；
+- 快照落盘 `benchmark/history/2026-11-03__v0.3.0-alpha.1__web-research/sources/`，实验期间不改；
 - 若某题在开跑前被官方改版导致快照失效，**整题作废并重出**，不得临时改判据。
 
 > 本轮 12 题具体内容在**执行阶段**用 `web_search`/`web_fetch` 现查现冻结，
@@ -262,7 +262,7 @@ PASS = 核心事实正确
 ## 9. 交付物
 
 ```
-benchmark/web-research/
+benchmark/history/2026-11-03__v0.3.0-alpha.1__web-research/
 ├── PLAN.md                        # 本文件（方案）
 ├── REPORT.md                      # ✅ 已建：15 道题的题目与判据已固化，结果表待回填
 ├── ISSUE-dsh-context-budget.md    # ✅ 已建：DSH 输出预算 issue 草稿

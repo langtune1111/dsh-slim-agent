@@ -1,6 +1,6 @@
 # 其余题目的实验计划（PLAN-TASKS，未执行）
 
-> 状态：**方案，尚未跑任何一次。**
+> 状态：**已并入 [PLAN-MASTER.md](PLAN-MASTER.md)**（2026-11-04）。本文件保留作决策痕迹，不再单独执行。
 > 基线：`dsh-slim-agent 0.3.0-beta.1`
 > 前置：先做 [PLAN-CITATION.md](PLAN-CITATION.md)（引用约束实验），再做本方案。
 

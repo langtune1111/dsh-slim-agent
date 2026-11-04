@@ -2,7 +2,7 @@
   "benchmark": "slim-agent-web-research",
   "version": "1.0",
   "benchmark_date": "2026-11-03",
-  "task_count": 15,
+  "task_count": 18,
   "tasks": [
     {
       "task_id": "A1",
@@ -307,6 +307,64 @@
       "benchmark_date": "2026-11-03",
       "source_snapshot_date": "2026-11-03",
       "oversize": true
+    },
+    {
+      "task_id": "T1",
+      "category": "T_agent_basic",
+      "user_prompt": "在当前目录创建 prime.py：判断命令行传入的整数是否为素数，是则打印 prime，否则打印 composite。然后分别运行 python3 prime.py 97 和 python3 prime.py 91，把两行输出按顺序贴回来。",
+      "expected_answer": "97 -> prime；91 -> composite",
+      "required_facts": [
+        "prime",
+        "composite"
+      ],
+      "required_sources": [],
+      "evaluation_rules": {
+        "must_call_search": false,
+        "required_file": "prime.py",
+        "min_sources": 0
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false,
+      "required_file": "prime.py"
+    },
+    {
+      "task_id": "T2",
+      "category": "T_agent_basic",
+      "user_prompt": "读本地文件 fixtures/T2.md，告诉我里面的工单号是多少。只回答工单号。",
+      "expected_answer": "A-7391",
+      "required_facts": [
+        "A-?7391"
+      ],
+      "required_sources": [],
+      "evaluation_rules": {
+        "must_call_search": false,
+        "must_read_local": true,
+        "min_sources": 0
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": false
+    },
+    {
+      "task_id": "X4",
+      "category": "X_oversize",
+      "user_prompt": "把 fixtures/legacy.py 重构成两个文件：core.py 放计算逻辑，cli.py 放命令行入口，保持原有行为不变。然后运行 python3 cli.py 8，输出必须与原程序一致。",
+      "expected_answer": "拆成 core.py + cli.py，且 python3 cli.py 8 输出 8 个斐波那契数",
+      "required_facts": [
+        "1",
+        "21"
+      ],
+      "required_sources": [],
+      "evaluation_rules": {
+        "must_call_search": false,
+        "required_file": "cli.py",
+        "min_sources": 0
+      },
+      "benchmark_date": "2026-11-03",
+      "source_snapshot_date": "2026-11-03",
+      "oversize": true,
+      "required_file": "cli.py"
     }
   ]
 }

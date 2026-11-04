@@ -51,6 +51,8 @@
 
 机器可读版本见 [`dataset.json`](dataset.json)（含 required_facts 正则、来源白名单、must_not_answer）。
 
+> 题库已从 15 题扩充到 **18 题**（新增 T1 / T2 两道 Agent 基础能力题、X4 多文件重构超纲题），本报告只覆盖其中 6 题；扩充后的实验安排见 [PLAN-MASTER.md](PLAN-MASTER.md)。
+
 | ID | 类 | 问题 | 标准答案 | 必须命中 | 来源白名单 |
 |---|---|---|---|---|---|
 | **A1** | A 实时事实 | Node.js 当前最新的 LTS 是哪个版本？它的代号叫什么？ | v26.13.0 / Lithium | `v26\.13\.0 / Lithium` | nodejs.org |

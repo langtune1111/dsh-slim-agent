@@ -9,7 +9,7 @@
 | 规模 | 已完成 **180** 次受控运行（P1 筛查 + 8K 补充块） |
 | 状态 | ✅ 已完成 |
 | 原始数据 | [`data/runs.ndjson`](data/runs.ndjson) · 判据 [`dataset.json`](dataset.json) |
-| 配套文件 | [PLAN.md](PLAN.md) · [PLAN-P2.md](PLAN-P2.md) · [ISSUE-dsh-context-budget.md](ISSUE-dsh-context-budget.md) |
+| 配套文件 | [PLAN.md](PLAN.md) · [PLAN-CITATION.md](PLAN-CITATION.md) · [PLAN-TASKS.md](PLAN-TASKS.md) · [ISSUE-dsh-context-budget.md](ISSUE-dsh-context-budget.md) |
 
 ### ⚠️ 执行范围（先看这里）
 

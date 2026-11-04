@@ -27,3 +27,4 @@
 | [`token-counter.mjs`](token-counter.mjs) | 固定开销静态估算（`npm run estimate`） |
 | [`tokenizer.mjs`](tokenizer.mjs) | 轻量分词估算 |
 | [`cases.json`](cases.json) | 标准评测用例定义 |
+| [`adapters/`](adapters/) | 基准专用搜索适配器：让无搜索的对组组用同源同范围的方式搜索 |

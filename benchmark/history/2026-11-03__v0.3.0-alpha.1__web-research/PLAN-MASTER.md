@@ -11,8 +11,10 @@
 
 **五个 arm 全部具备同源同范围的搜索能力**，在 **14 道主线题（12 道联网研究 + 2 道 Agent 基础能力）
 + 4 道超纲题**上跑无约束基线，再对两道引用密集型题目叠加「强制引用」变体。
-**全程开启思考模式**；**LFM3 双路并发、Qwen 单路**；**4K 与 6K 均已实测否决，不设低上下文档**。
-总计 **370 次运行、约 9.5 小时**，**连续跑完一次性交付**。
+**按「模型 × 思考模式」切成三个阶段**：阶段一两个模型都关思考；阶段二 LFM3 开、阶段三 Qwen 开，
+开思考时用 `--reasoning-budget 1024` 给思考设上限（否则它会吃光回答额度）。
+**LFM3 双路并发、Qwen 单路**；**4K 与 6K 均已实测否决**。
+总计 **750 次运行、约 19 小时**，**连续跑完一次性交付**。
 
 ---
 
@@ -111,24 +113,50 @@ const available = model.contextWindow - estimateContextTokens(context).tokens - 
 
 ---
 
-## 4bis. 思考模式（按你的要求全程开启，实测见 [PROBE](PROBE-2026-11-04.md)）
+## 4bis. 思考模式：默认没有独立预算，但可以用 `--reasoning-budget` 给
 
-两轮探针（LFM3 @64K，reasoning on vs off）：
+### 4bis.1 实测：思考直接吃掉 `max_tokens`
 
-| arm | 思考模式 | completion tokens | 终态 | 耗时 |
+直接打 llama-server（LFM3，`--reasoning on`，默认 budget = -1）：
+
+| `max_tokens` | completion_tokens | `content` | `reasoning_content` | finish |
 |---|---|---|---|---|
-| E slim 完整 | 关 | ~700–1000 | FAIL | 50–70 s |
-| E slim 完整 | **开** | **1808** | TIMEOUT | 150 s |
-| A 极简 | 关 | ~1100–1500 | TIMEOUT | 120 s |
-| A 极简 | **开** | **3569** | TIMEOUT | 150 s |
+| 32 | 32 | **空** | 121 字符（全在思考里） | `length` |
 
-**开思考后，完成 token 涨到 1.5–3 倍，并且更容易把 4096 的输出上限吃满、退化成 `length` 截断。**
-这是本轮必须如实记录的现象，不是要消除的噪声。
+**结论：llama.cpp 的思考 token 与回答 token 共用同一个 `max_tokens` 池，
+默认没有任何独立预算。** 额度给少了，模型就把 100% 的预算烧在思考上，回答是空的。
 
-对执行参数的影响：
-- 单任务墙钟上限从 120 s 提到 **180 s**（给思考留出空间）；
-- 单次输出上限维持 `min(4096, ctx/2)`；
-- 报告里单独一栏统计 **reasoning 占比**（DSH 会把思考打到 stderr、pi 会进 reasoning 通道，两者分别处理）。
+这解释了之前的探针数据：开思考后 completion tokens 从 700–1000 涨到 1808，
+极简 arm 从 1100–1500 涨到 3569——不是模型变啰嗦，是思考在抢同一份额度。
+
+### 4bis.2 但 llama.cpp 给了旋钮
+
+`llama-server --help` 里有：
+
+```
+--reasoning-budget N        token budget for thinking: -1 unrestricted, 0 immediate end, N>0 token budget (default: -1)
+--reasoning-budget-message  message injected before the end-of-thinking tag when the budget is hit
+```
+
+实测 `--reasoning-budget 64` + `max_tokens = 256`：
+
+| 项 | 结果 |
+|---|---|
+| `reasoning_content` | 234 字符（约 64–73 tokens，被截断） |
+| `content` | **正常回答**，非空 |
+| `completion_tokens` | 171 |
+| `finish_reason` | `stop` |
+
+**也就是说：给它一个预算，思考就不再挤占回答。**
+
+### 4bis.3 本轮怎么用
+
+- **阶段一（思考关）**：`--reasoning off`，作为基线。
+- **阶段二/三（思考开）**：`--reasoning on --reasoning-budget 1024`，
+  即每轮最多 1024 tokens 用于思考，剩余额度留给回答（`max_tokens` 仍为 4096）。
+  选 1024 的理由：约为 4096 的 1/4，既能让 1.7B/4B 展开推理，又保证至少有 3072 给回答。
+- **微对照组**：每个开思考阶段额外跑 **5 次不限预算**（`-1`）的同题运行，
+  用来量化"不设预算会让多少运行退化成空回答"。这 5 次单独成表，不进主通过率。
 
 ---
 
@@ -158,22 +186,38 @@ const available = model.contextWindow - estimateContextTokens(context).tokens - 
 
 ---
 
-## 5. 阶段与运行量（连续执行，中间不汇报）
+## 5. 三个阶段（按模型 × 思考模式切分，连续执行不汇报）
 
-| 阶段 | 内容 | arm × 模型 | 重复 | 运行数 | 并发 | 预估 |
+每个阶段跑**完整套件**：P0 校准 5 次 + P1 联网主线 12 题 + P2 Agent 基础 2 题 +
+P3 引用约束 2 题 + P4 超纲 4 题。
+
+| 阶段 | 模型 | 思考模式 | 单模型套件 | 运行数 | 并发 | 预估 |
 |---|---|---|---|---|---|---|
-| **P0 校准** | 5 arm 各 1 次冒烟，确认适配器搜到东西、条数格式一致 | — | 1 | **10** | LFM3 2 路 | 10 min |
-| **P1 联网主线 12 题（V0）** | A1-A3 B1-B3 C1-C3 D1-D3 | 5 × 2 | 2 | **240** | LFM3 2 路 / Qwen 1 路 | 6.5 h |
-| **P2 Agent 基础 2 题（V0）** | T1 T2 | 5 × 2 | 2 | **40** | 同上 | 0.3 h |
-| **P3 引用约束（V1）** | A1 B3 | 5 × 2 | 2 | **40** | 同上 | 1.2 h |
-| **P4 超纲 4 题** | X1-X4 | 5 × 2 | 1 | **40** | 同上 | 1.4 h |
-| **P5 低上下文** | ~~6K 档~~ **已由 §4 探针否决，取消** | — | — | **0** | — | 0 |
-| **合计** | | | | **370** | | **≈ 9.5 h** |
+| **阶段一** | LFM3 + Qwen | **关**（`--reasoning off`） | 185 × 2 | **370** | LFM3 2 路 / Qwen 1 路 | ≈ 9 h |
+| **阶段二** | LFM3 | **开**（`--reasoning-budget 1024`） | 185 | **185** | 2 路 | ≈ 3 h |
+| **阶段二·对照** | LFM3 | 开 + 不限预算（`-1`） | 5 | **5** | 2 路 | 10 min |
+| **阶段三** | Qwen3.5 4B | **开**（`--reasoning-budget 1024`） | 185 | **185** | 1 路 | ≈ 6.5 h |
+| **阶段三·对照** | Qwen3.5 4B | 开 + 不限预算（`-1`） | 5 | **5** | 1 路 | 15 min |
+| **合计** | | | | **750** | | **≈ 19 h** |
 
-- 执行顺序固定 `P0 → P1 → P2 → P3 → P4`，**中途不汇报、不中断**，跑完一次性交付。
-- 唯一允许中止的条件：P0 校准失败（适配器搜不到东西）。
-- 单任务墙钟 **180 s**（思考模式需要更多时间）。
-- 若 P1 跑到一半发现实际耗时显著超出预估，后续阶段降为 1 次重复，并在报告中声明。
+### 5.1 单模型套件（185 次）的构成
+
+| 子阶段 | 内容 | arm × 题 | 重复 | 运行数 |
+|---|---|---|---|---|
+| P0 校准 | 5 个 arm 各冒烟 1 次 | 5 × 1 | 1 | 5 |
+| P1 联网主线 | A1-A3 B1-B3 C1-C3 D1-D3（12 题） | 5 × 12 | 2 | 120 |
+| P2 Agent 基础 | T1 T2 | 5 × 2 | 2 | 20 |
+| P3 引用约束 | A1 B3，V1 强制引用 | 5 × 2 | 2 | 20 |
+| P4 超纲 | X1-X4 | 5 × 4 | 1 | 20 |
+| 合计 | | | | **185** |
+
+### 5.2 执行纪律
+
+- 顺序：`阶段一 → 阶段二(+对照) → 阶段三(+对照)`，**中途不汇报、不中断**，全部跑完一次性交付。
+- 唯一允许中止：某阶段的 P0 校准失败（适配器搜不到东西）。
+- 每阶段之间重启 llama-server 并切换模型/思考参数（不是"跑完再换"，是切换后立刻继续）。
+- 单任务墙钟 **180 s**；单次输出上限 `min(4096, ctx/2)`；上下文全程 **65536**。
+- 阶段一的 370 次里，LFM3 与 Qwen 各 185 次，**题目、arm、重复完全对称**。
 
 ---
 
@@ -184,9 +228,9 @@ const available = model.contextWindow - estimateContextTokens(context).tokens - 
 | `required_file` 支持 | T1/X4 要检查工作目录里是否真的生成了 `prime.py` / `cli.py` |
 | V1 提示词后缀注入 | 按 `variant` 参数给 prompt 追加引用约束句 |
 | 并发调度 | `run_master.sh` 支持 `JOBS=2`（LFM3）/ `JOBS=1`（Qwen），按模型切换 |
-| 思考模式适配 | llama-server 用 `--reasoning on`；统计 completion 里 reasoning 占比 |
+| 思考模式适配 | `--reasoning off` / `--reasoning on --reasoning-budget 1024`；统计 reasoning 占比与 `length` 截断率 |
 | 墙钟上限 | 从 120 s 提到 **180 s** |
-| 报告渲染 | `render_report.py` 增加 T 类、X4、思考模式栏与 `Citation Coverage` 表；删掉 6K 段 |
+| 报告渲染 | 增加 T 类、X4、思考模式三维对比（关 / 开+预算 / 开不限）、`Citation Coverage` 表；删掉 6K 段 |
 
 这些都不改动 `dsh-slim-agent` 产品代码。
 
@@ -229,6 +273,7 @@ const available = model.contextWindow - estimateContextTokens(context).tokens - 
 | 12 道研究题仍然 0 通过 | 主指标无区分度 | 靠 Citation Coverage、收敛性、搜索次数、最小可用窗口四个辅助指标出结论 |
 | 思考模式把输出上限吃满 | `length` 截断激增、TIMEOUT 上升 | 墙钟提到 180 s；报告单列 reasoning 占比与截断率，不掩盖 |
 | 并发争抢把 FAIL 挤成 TIMEOUT | 公平性受质疑 | 同模型内所有 arm 并发度一致；报告给出每 arm 的 TIMEOUT 率并加脚注 |
-| 时长超预估 | 可能超 10 h | 若 P1 后半段仍严重超时，P2–P4 降为 1 次重复，并在报告中声明 |
+| 总时长接近 19 h | 夜里跑不完 | 三阶段天然可断点续跑；每阶段独立出数据，中断也不丢已完成部分 |
+| 思考预算 1024 对小模型仍偏大 | 出现空回答 | 微对照组（不限预算 5 次）能量化该效应；若空回答率 > 30% 会在报告里调低建议值 |
 | 适配器与 slim 行为不完全一致 | 可信度下降 | 差异已在 adapters/README.md 列明，报告单列 |
 | Bing 结果漂移 | 同题两次不同 | 记录每次 URL 列表，报告给漂移率 |

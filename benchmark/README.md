@@ -16,7 +16,7 @@
 
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
-| 2026-11-04 | `0.3.0-alpha.2` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN.md) |
+| 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [补跑方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-P2.md) |
 | 2026-11-03 | `0.2.3-beta.1` | 四种 Agent 配置 × 五档上下文横评 | 72 次 | ✅ 已完成 | [报告](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/REPORT.md) · [数据](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/data/) |
 
 ## 工具脚本（不属于某次实验）

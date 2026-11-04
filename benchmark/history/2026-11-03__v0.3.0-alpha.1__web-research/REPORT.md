@@ -4,12 +4,12 @@
 |---|---|
 | 实验编号 | `BENCH-2026-11-03-v0.3.0-alpha.2` |
 | 立项 / 执行日期 | 2026-11-03 立项，2026-11-04 执行 |
-| 被测版本 | `dsh-slim-agent 0.3.0-alpha.2`（= 0.3.0-alpha.1 + Bing 搜索兜底） |
+| 被测版本 | `0.3.0-alpha.2`（= alpha.1 + Bing 搜索兜底；与本次 release 的 `0.3.0-beta.1` 代码相同，仅版本号不同） |
 | 实验内容 | 联网研究能力专项：7 个 arm × 15 道题（12 主线 + 3 超纲），禁用 DeepSeek 搜索 API |
 | 规模 | 已完成 **180** 次受控运行（P1 筛查 + 8K 补充块） |
 | 状态 | ✅ 已完成 |
 | 原始数据 | [`data/runs.ndjson`](data/runs.ndjson) · 判据 [`dataset.json`](dataset.json) |
-| 配套文件 | [PLAN.md](PLAN.md) · [ISSUE-dsh-context-budget.md](ISSUE-dsh-context-budget.md) |
+| 配套文件 | [PLAN.md](PLAN.md) · [PLAN-P2.md](PLAN-P2.md) · [ISSUE-dsh-context-budget.md](ISSUE-dsh-context-budget.md) |
 
 ### ⚠️ 执行范围（先看这里）
 
@@ -25,7 +25,7 @@
 | 阶段 | P1 + P2 确认 | **仅 P1（缩编）+ 8K 补充块** | P2 未跑 |
 
 **因此本报告结论的适用范围**：仅对"6 道题、64K/8K、两个本地小模型"成立；
-不能外推成"15 题全量结论"。未跑的 9 道题题目与判据已在 [`dataset.json`](dataset.json) 中冻结，可随时续跑。
+不能外推成"15 题全量结论"。未跑的 9 道题题目与判据已在 [`dataset.json`](dataset.json) 中冻结，续跑计划见 [PLAN-P2.md](PLAN-P2.md)（未执行）。
 
 ---
 

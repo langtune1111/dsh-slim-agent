@@ -81,7 +81,7 @@ test("searchEngine: 'builtin' 模式下绝不调用宿主 ctx.web.search", async
   const { ctx, registered } = makeCtx({ web: fakeWeb })
   apply(ctx, { searchEngine: 'builtin' })
   const search = registered.find((t) => t.name === 'web_search')
-  await search.execute({ queries: ['nodejs'] })
+  await search.execute({ query: 'nodejs' })
   assert.equal(hostCalled, false, 'builtin 模式不得调用宿主 web.search')
 })
 
@@ -96,7 +96,7 @@ test("searchEngine: 'host' 模式下只调用宿主，失败时不调用内置�
   const { ctx, registered } = makeCtx({ web: fakeWeb })
   apply(ctx, { searchEngine: 'host' })
   const search = registered.find((t) => t.name === 'web_search')
-  const res = await search.execute({ queries: ['nodejs'] })
+  const res = await search.execute({ query: 'nodejs' })
   assert.equal(hostCalled, true)
   assert.match(res.result, /No results for/)
 })

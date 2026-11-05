@@ -161,17 +161,20 @@ export const TOOL_DESCRIPTION = 'Search the web for clues. Returns up to 4 items
 export const TOOL_PARAMETERS = {
   type: 'object',
   properties: {
-    queries: { type: 'array', items: { type: 'string' }, description: '1 to 3 query strings.' },
+    query: { type: 'string', description: 'One search query string. Keep it short: 2-6 keywords.' },
   },
-  required: ['queries'],
+  required: ['query'],
 }
 
-/** 把 queries 数组归一化成单条查询（与 slim execute 中的处理一致）。 */
+/** 归一化成单条查询字符串：优先 args.query，兼容旧数组格式。 */
 export function normalizeQueries(args) {
-  const queries = (Array.isArray(args?.queries) ? args.queries : []).filter(
-    (q) => typeof q === 'string' && q.trim() !== '',
-  )
-  if (queries.length === 0) return null
-  if (queries.length > 3) queries.length = 3
-  return queries.join(' ')
+  let query = typeof args?.query === 'string' ? args.query.trim() : ''
+  if (query === '' && Array.isArray(args?.queries)) {
+    query = args.queries
+      .filter((q) => typeof q === 'string' && q.trim() !== '')
+      .slice(0, 3)
+      .join(' ')
+      .trim()
+  }
+  return query === '' ? null : query
 }

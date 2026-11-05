@@ -312,6 +312,7 @@ export function apply(ctx, config = {}) {
     maxTurnsDefault: Number(config.maxTurnsDefault) || 8,
     maxTurnsDeep: Number(config.maxTurnsDeep) || 12,
     maxToolCalls: Number(config.maxToolCalls) || 15,
+    maxSearches: Number(config.maxSearches) || 5,
     bash: config.bash || 'sandbox',
     // 消融开关（默认值与正式行为一致；仅供 benchmark 逐项对照使用）
     enableSearch: config.enableSearch !== false,
@@ -321,6 +322,26 @@ export function apply(ctx, config = {}) {
   }
   const sem = new AsyncSemaphore(opts.concurrencyLimit)
   const disposers = []
+
+  /* 检索计数：按会话工作目录分桶。
+   * DSH 的 exec 并不保证带 agent 引用（实测拿不到），所以用 bash 工具同样的取法：
+   * 会话 header.cwd，取不到就退回 process.cwd()。一次运行一个工作目录，天然隔离。 */
+  const searchBudget = new Map()
+  const budgetKey = (exec) => {
+    try {
+      return exec?.agent?.session?.header?.cwd
+        ?? exec?.session?.header?.cwd
+        ?? process.cwd()
+    } catch {
+      return process.cwd()
+    }
+  }
+  const bumpSearchBudget = (exec) => {
+    const key = budgetKey(exec)
+    const next = (searchBudget.get(key) ?? 0) + 1
+    searchBudget.set(key, next)
+    return next
+  }
 
   /* 主代理可见工具集 = 白名单 = 开关产物。两者必须同源，否则会出现
    * "注册了但不给列"或"列了但调不动"的错位。 */
@@ -442,16 +463,31 @@ export function apply(ctx, config = {}) {
     parameters: {
       type: 'object',
       properties: {
-        queries: { type: 'array', items: { type: 'string' }, description: '1 to 3 query strings.' },
+        query: { type: 'string', description: 'One search query string. Keep it short: 2-6 keywords.' },
       },
-      required: ['queries'],
+      required: ['query'],
     },
     output: textOut('result'),
-    async execute(args) {
-      const queries = (Array.isArray(args.queries) ? args.queries : []).filter((q) => typeof q === 'string' && q.trim() !== '')
-      if (queries.length === 0) return { result: 'No usable query provided.' }
-      if (queries.length > 3) queries.length = 3
-      const query = queries.join(' ')
+    async execute(args, exec) {
+      // 单字符串参数：1.7B 在数组参数上反复出错，收窄成 string
+      let query = typeof args.query === 'string' ? args.query.trim() : ''
+      // 兼容旧格式（数组）——子代理或其他调用方可能仍按老 schema 传
+      if (query === '' && Array.isArray(args.queries)) {
+        query = args.queries.filter((q) => typeof q === 'string' && q.trim() !== '').slice(0, 3).join(' ').trim()
+      }
+      if (query === '') return { result: 'No usable query provided.' }
+
+      // 检索预算硬上限：防止小模型把整轮预算烧在搜索循环里
+      const used = bumpSearchBudget(exec)
+      if (used > opts.maxSearches) {
+        audit({ kind: 'web_search', policy: 'budget', refused: 'over-budget', used, query })
+        return {
+          result: '[BUDGET] 检索预算已用尽（上限 ' + opts.maxSearches + ' 次，本次是第 ' + used + ' 次）。'
+            + '不要再调用 web_search。请立刻基于已有结果作答；'
+            + '仍然无法确认的内容直接写「未证实」。',
+        }
+      }
+
       const { engine, items } = await searchWeb(ctx, query, opts)
       if (items.length === 0) {
         return { result: 'No results for "' + query + '". Try broader keywords, or delegate to subagent with a specific site.' }

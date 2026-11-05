@@ -456,17 +456,22 @@ export function apply(ctx, config = {}) {
       if (items.length === 0) {
         return { result: 'No results for "' + query + '". Try broader keywords, or delegate to subagent with a specific site.' }
       }
-      const lines = ['[线索] "' + query + '" via ' + engine + '（前 ' + Math.min(items.length, opts.maxResults) + ' 条，读全文请委派 subagent）:']
       const max = Math.min(items.length, opts.maxResults)
+      const lines = ['[S0] 本次检索 "' + query + '" via ' + engine + '，共 ' + max + ' 条候选来源，编号如下：']
+      const refs = []
       for (let i = 0; i < max; i += 1) {
         const item = items[i]
         const url = item.url || ''
         const title = String(item.title || 'link').replace(/\s+/g, ' ').slice(0, 40)
         const snippet = String(item.snippet || '').replace(/\s+/g, ' ').slice(0, 80)
-        lines.push((i + 1) + '. ' + classifySource(url) + ' [' + title + '](' + url + ')' + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要'))
+        const tag = 'S' + (i + 1)
+        refs.push('[' + tag + '] ' + url)
+        lines.push('[' + tag + '] ' + classifySource(url) + ' ' + title + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要') + '  <' + url + '>')
       }
       lines.push('')
-      lines.push('（标签是域名启发式，仅作参考；关键结论请交叉核对原始来源。）')
+      lines.push('[S0] 引用格式（强制）：答案里每个来自上述来源的事实，必须紧跟方括号编号，例如「最新 LTS 是 v26.13.0 [S1]」。')
+      lines.push('[S0] 答案末尾必须单列一行：来源: ' + refs.join(' | '))
+      lines.push('[S0] 找不到来源支持的内容，一律写「未证实」，不要编造编号。')
       return { result: lines.join('\n') }
     },
   })

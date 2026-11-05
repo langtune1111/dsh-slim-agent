@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-05 | `0.3.3-beta.1` | 答复通道实验（收敛指令 / final_answer，各 12 次） | 24 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-05__v0.3.3-beta.1__answer-channel/REPORT.md) · [数据](history/2026-11-05__v0.3.3-beta.1__answer-channel/data/) |
 | 2026-11-05 | `0.3.2-beta.1` | slim 强制收敛实验（4 组 x 3 题 x 2 轮） | 24 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-05__v0.3.2-beta.1__slim-converge/REPORT.md) · [数据](history/2026-11-05__v0.3.2-beta.1__slim-converge/data/) |
 | 2026-11-05 | `0.3.0-beta.1` | 五阶段完整实验（5 arm × 18 题 × 思考开关） | **851 次** | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-05__v0.3.0-beta.1__web-research-fair/REPORT.md) · [数据](history/2026-11-05__v0.3.0-beta.1__web-research-fair/data/) |
 | 2026-11-03 | `0.2.3-beta.1` | 四种 Agent 配置 × 五档上下文横评 | 72 次 | ✅ 已完成 | [报告](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/REPORT.md) · [数据](history/2026-11-03__v0.2.3-beta.1__llamacpp-four-arm-matrix/data/) |

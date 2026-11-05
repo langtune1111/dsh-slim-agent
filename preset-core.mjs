@@ -315,6 +315,8 @@ export function apply(ctx, config = {}) {
     maxSearches: config.maxSearches === undefined ? 5 : Math.max(0, Math.floor(Number(config.maxSearches) || 0)),
     // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
     convergeMode: ['off', 'budget', 'hardCap'].includes(config.convergeMode) ? config.convergeMode : 'off',
+    // 最终答复改由工具提交：1.7B 只会可靠地产生工具调用，不会可靠地写自然语言结论
+    enableFinalAnswer: config.enableFinalAnswer !== false,
     hardCap: Number(config.hardCap) || 8,
     bash: config.bash || 'sandbox',
     // 消融开关（默认值与正式行为一致；仅供 benchmark 逐项对照使用）
@@ -356,6 +358,20 @@ export function apply(ctx, config = {}) {
   }
 
   /* 本轮是否已经进入"只能出文本"的收敛态。 */
+  /* 收敛后必须让模型停止"调用工具"的表达方式。
+   * 实测：工具面清空后，1.7B 仍会把 <tool_call>…</tool_call> 当文本写出来，
+   * 那段标记会变成"最终答复"，看着非空、其实不是答案。 */
+  const CONVERGE_SECTION = {
+    name: 'slim:converged',
+    interpolate: false,
+    text: [
+      '【工具已停用】本轮没有任何工具可用，也不要假装调用。',
+      '禁止输出 <tool_call>、<function=...>、<parameter=...>、```json 形式的函数调用标记。',
+      '必须用自然语言直接给出最终结论：一到三句话，能确定的写结论并附上前面搜索得到的来源编号（如 [S1]），',
+      '不能确定的写「未证实」。',
+    ].join(''),
+  }
+
   const isConverged = (key) => {
     if (opts.convergeMode === 'budget') return (searchBudget.get(key) ?? 0) > opts.maxSearches
     if (opts.convergeMode === 'hardCap') return (callBudget.get(key) ?? 0) >= opts.hardCap
@@ -368,6 +384,7 @@ export function apply(ctx, config = {}) {
   if (opts.enableSearch) allow.add('web_search')
   if (opts.enableSubagent) allow.add('subagent')
   if (opts.enableTaskComplete) allow.add('task_complete')
+  if (opts.enableFinalAnswer) allow.add('final_answer')
 
   /** 注册工具：任何一次注册失败都不应拖垮整条预设。 */
   const reg = (tool) => {
@@ -531,6 +548,40 @@ export function apply(ctx, config = {}) {
     },
   })
 
+  /* ── 2.5 final_answer：把"写结论"变成"调工具" ────────────────────────
+   * 实测：小模型在不给工具时会输出 <tool_call> 文本当答复，给工具时又只会
+   * 反复调用。既然如此，就让结论本身通过一次工具调用来提交：
+   * 参数里有 answer（自然语言结论）和 sources（引用到的 [S1] 编号）。
+   * 会话日志会完整记录这次调用的 arguments，评测侧直接取它当答复。 */
+  if (opts.enableFinalAnswer) {
+    reg({
+      name: 'final_answer',
+      description: 'Submit the final answer. Call this exactly once when you are ready to conclude.',
+      parameters: {
+        type: 'object',
+        properties: {
+          answer: { type: 'string', description: 'The final answer in plain language, 1-3 sentences.' },
+          sources: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Source labels used, e.g. ["S1","S3"]. Empty array if none.',
+          },
+        },
+        required: ['answer'],
+      },
+      output: textOut('status'),
+      async execute(args, exec) {
+        const answer = String(args.answer ?? '').trim()
+        const sources = Array.isArray(args.sources) ? args.sources.map((x) => String(x)) : []
+        audit({ kind: 'final_answer', answer: answer.slice(0, 200), sources })
+        try {
+          if (typeof exec?.concludeTurn === 'function') exec.concludeTurn()
+        } catch {}
+        return { status: '[FINAL] ' + answer + (sources.length ? '\n来源: ' + sources.join(' | ') : '') }
+      },
+    })
+  }
+
   /* ── 3. （已移除）task_complete ──────────────────────────────────────
    * 0.2.x 里它调用 exec.concludeTurn() 立即结束回合。concludeTurn 的签名是
    * `concludeTurn(): void`，不吃任何 payload，插件也无法回注 assistant 文本，
@@ -674,7 +725,9 @@ export function apply(ctx, config = {}) {
       if (isConverged(key)) {
         audit({ kind: 'converge', mode: opts.convergeMode, action: 'tools-cleared',
                 searches: searchBudget.get(key) ?? 0, calls: callBudget.get(key) ?? 0 })
-        return { ...assembled, tools: [] }
+        const sections = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
+        if (!sections.some((sec) => sec?.name === CONVERGE_SECTION.name)) sections.push(CONVERGE_SECTION)
+        return { ...assembled, tools: [], sections }
       }
       const tools = Array.isArray(assembled.tools) ? assembled.tools : []
       return { ...assembled, tools: tools.filter((tool) => allow.has(tool?.name)) }

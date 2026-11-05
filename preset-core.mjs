@@ -312,7 +312,10 @@ export function apply(ctx, config = {}) {
     maxTurnsDefault: Number(config.maxTurnsDefault) || 8,
     maxTurnsDeep: Number(config.maxTurnsDeep) || 12,
     maxToolCalls: Number(config.maxToolCalls) || 15,
-    maxSearches: Number(config.maxSearches) || 5,
+    maxSearches: config.maxSearches === undefined ? 5 : Math.max(0, Math.floor(Number(config.maxSearches) || 0)),
+    // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
+    convergeMode: ['off', 'budget', 'hardCap'].includes(config.convergeMode) ? config.convergeMode : 'off',
+    hardCap: Number(config.hardCap) || 8,
     bash: config.bash || 'sandbox',
     // 消融开关（默认值与正式行为一致；仅供 benchmark 逐项对照使用）
     enableSearch: config.enableSearch !== false,
@@ -341,6 +344,22 @@ export function apply(ctx, config = {}) {
     const next = (searchBudget.get(key) ?? 0) + 1
     searchBudget.set(key, next)
     return next
+  }
+
+  /* 主代理的工具调用总计数，与搜索计数同一分桶键。 */
+  const callBudget = new Map()
+  const bumpCallBudget = (exec) => {
+    const key = budgetKey(exec)
+    const next = (callBudget.get(key) ?? 0) + 1
+    callBudget.set(key, next)
+    return next
+  }
+
+  /* 本轮是否已经进入"只能出文本"的收敛态。 */
+  const isConverged = (key) => {
+    if (opts.convergeMode === 'budget') return (searchBudget.get(key) ?? 0) > opts.maxSearches
+    if (opts.convergeMode === 'hardCap') return (callBudget.get(key) ?? 0) >= opts.hardCap
+    return false
   }
 
   /* 主代理可见工具集 = 白名单 = 开关产物。两者必须同源，否则会出现
@@ -651,6 +670,12 @@ export function apply(ctx, config = {}) {
       const header = context?.agent?.session?.header
       const isChild = header !== undefined && (header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0)
       if (isChild) return assembled
+      const key = header?.cwd ?? process.cwd()
+      if (isConverged(key)) {
+        audit({ kind: 'converge', mode: opts.convergeMode, action: 'tools-cleared',
+                searches: searchBudget.get(key) ?? 0, calls: callBudget.get(key) ?? 0 })
+        return { ...assembled, tools: [] }
+      }
       const tools = Array.isArray(assembled.tools) ? assembled.tools : []
       return { ...assembled, tools: tools.filter((tool) => allow.has(tool?.name)) }
     } catch (error) {
@@ -673,6 +698,12 @@ export function apply(ctx, config = {}) {
       const isChild = header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0
       if (isChild) return next()
       const name = exec?.name ?? exec?.tool?.name ?? exec?.call?.name
+      const key = header.cwd ?? process.cwd()
+      const calls = bumpCallBudget(exec)
+      if (isConverged(key)) {
+        audit({ kind: 'converge', mode: opts.convergeMode, action: 'deny-call', tool: name, calls })
+        return { kind: 'deny', reason: '[slim] 本轮工具已停用：请直接给出结论，无法确认的写「未证实」' }
+      }
       if (typeof name === 'string' && name !== '' && !allow.has(name)) {
         try { ctx.logger?.warn?.('[slim-core] denied out-of-whitelist tool: ' + name) } catch {}
         return { kind: 'deny', reason: `[slim] tool "${name}" is outside the main-agent whitelist` }

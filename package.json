@@ -1,6 +1,6 @@
 {
     "name":  "dsh-slim-agent",
-    "version":  "0.3.1-beta.1",
+    "version":  "0.3.2-beta.1",
     "description":  "DSH Slim Agent：面向 1.7B-8B 小参数模型、短上下文（4K-8K）和消费级显卡的轻量级 Agent 能力增强框架。窄主宽子、主动联网、能力密度、重启一次即用。(0.2.3-beta.1)",
     "type":  "module",
     "main":  "index.js",

@@ -253,3 +253,42 @@ test('消融开关：enableTaskComplete=true 时回填旧的 task_complete（仅
   const result = await hook.fn({}, { agent: { session: { header: {} } } }, async () => ({ tools }))
   assert.deepEqual(result.tools.map((t) => t.name).sort(), ['bash', 'read', 'task_complete'])
 })
+
+test('收敛: budget 模式下搜索超限后 assemble 清空工具面', async () => {
+  const { ctx, handlers, registered } = makeCtx()
+  apply(ctx, { bash: 'off', maxSearches: 0, convergeMode: 'budget' })
+  const asm = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const search = registered.find((t) => t.name === 'web_search')
+  assert.ok(search, 'web_search 必须注册')
+  const header = { cwd: '/tmp/converge-budget' }
+  // maxSearches=0 → 第一次调用即超预算并返回 [BUDGET]，不会真的联网
+  const first = await search.execute({ query: 'nodejs' }, { agent: { session: { header } } })
+  assert.match(first.result, /BUDGET/)
+  const tools = ['read', 'bash', 'web_search'].map((n) => ({ name: n }))
+  const after = await asm.fn({}, { agent: { session: { header } } }, async () => ({ tools }))
+  assert.deepEqual(after.tools, [])
+})
+
+test('收敛: hardCap 模式下工具调用达上限后 my assemble 清空', async () => {
+  const { ctx, handlers, registered } = makeCtx()
+  apply(ctx, { bash: 'local', convergeMode: 'hardCap', hardCap: 2 })
+  const header = { cwd: '/tmp/converge-hardcap' }
+  const pre = handlers.find((h) => h.event === 'tools/pre-execute')
+  const asm = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const tools = ['read', 'bash', 'web_search'].map((n) => ({ name: n }))
+  const ok1 = await pre.fn({ name: 'read', agent: { session: { header } } }, async () => ({ kind: 'allow' }))
+  assert.equal(ok1.kind, 'allow')
+  const denied = await pre.fn({ name: 'read', agent: { session: { header } } }, async () => ({ kind: 'allow' }))
+  const after = await asm.fn({}, { agent: { session: { header } } }, async () => ({ tools }))
+  assert.equal(denied.kind === 'deny' || after.tools.length === 0, true)
+})
+
+test('收敛: 子代理会话不受收敛影响', async () => {
+  const { ctx, handlers } = makeCtx()
+  apply(ctx, { bash: 'off', convergeMode: 'hardCap', hardCap: 0 })
+  const asm = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const tools = ['read', 'bash', 'web_search'].map((n) => ({ name: n }))
+  const header = { cwd: '/tmp/child', origin: 'subagent' }
+  const out = await asm.fn({}, { agent: { session: { header } } }, async () => ({ tools }))
+  assert.deepEqual(out.tools.map((t) => t.name).sort(), ['bash', 'read', 'web_search'])
+})

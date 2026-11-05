@@ -317,6 +317,9 @@ export function apply(ctx, config = {}) {
     convergeMode: ['off', 'budget', 'hardCap'].includes(config.convergeMode) ? config.convergeMode : 'off',
     // 最终答复改由工具提交：1.7B 只会可靠地产生工具调用，不会可靠地写自然语言结论
     enableFinalAnswer: config.enableFinalAnswer !== false,
+    // 收敛时保留 final_answer 作为唯一出口：实测工具面为空时模型会把调用写成纯文本，
+    // 留一个"提交工具"反而能让它把结论说完整。
+    convergeFinalOnly: config.convergeFinalOnly !== false,
     hardCap: Number(config.hardCap) || 8,
     bash: config.bash || 'sandbox',
     // 消融开关（默认值与正式行为一致；仅供 benchmark 逐项对照使用）
@@ -727,7 +730,14 @@ export function apply(ctx, config = {}) {
                 searches: searchBudget.get(key) ?? 0, calls: callBudget.get(key) ?? 0 })
         const sections = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
         if (!sections.some((sec) => sec?.name === CONVERGE_SECTION.name)) sections.push(CONVERGE_SECTION)
-        return { ...assembled, tools: [], sections }
+        // 留一个出口：只保留 final_answer，其余工具全部撤掉
+        const keepFinal = opts.convergeFinalOnly && opts.enableFinalAnswer
+        const tools = keepFinal
+          ? (Array.isArray(assembled.tools) ? assembled.tools : []).filter((t) => t?.name === 'final_answer')
+          : []
+        audit({ kind: 'converge', mode: opts.convergeMode, action: keepFinal ? 'final-only' : 'tools-cleared',
+                searches: searchBudget.get(key) ?? 0, calls: callBudget.get(key) ?? 0, kept: tools.length })
+        return { ...assembled, tools, sections }
       }
       const tools = Array.isArray(assembled.tools) ? assembled.tools : []
       return { ...assembled, tools: tools.filter((tool) => allow.has(tool?.name)) }
@@ -754,8 +764,9 @@ export function apply(ctx, config = {}) {
       const key = header.cwd ?? process.cwd()
       const calls = bumpCallBudget(exec)
       if (isConverged(key)) {
+        if (opts.convergeFinalOnly && opts.enableFinalAnswer && name === 'final_answer') return next()
         audit({ kind: 'converge', mode: opts.convergeMode, action: 'deny-call', tool: name, calls })
-        return { kind: 'deny', reason: '[slim] 本轮工具已停用：请直接给出结论，无法确认的写「未证实」' }
+        return { kind: 'deny', reason: '[slim] 本轮工具已停用：请用 final_answer 提交结论，无法确认的写「未证实」' }
       }
       if (typeof name === 'string' && name !== '' && !allow.has(name)) {
         try { ctx.logger?.warn?.('[slim-core] denied out-of-whitelist tool: ' + name) } catch {}

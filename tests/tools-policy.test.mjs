@@ -311,3 +311,23 @@ test('收敛: 子代理会话不受收敛影响', async () => {
   const out = await asm.fn({}, { agent: { session: { header } } }, async () => ({ tools }))
   assert.deepEqual(out.tools.map((t) => t.name).sort(), ['bash', 'read', 'web_search'])
 })
+
+test('fetchExcerpt: 拒绝私网与非法协议', async () => {
+  const { isFetchableUrl } = await import('../preset-core.mjs')
+  const bad = [
+    'file:///etc/passwd',
+    'ftp://example.com/x',
+    'http://localhost:8080/',
+    'http://127.0.0.1/',
+    'http://10.1.2.3/',
+    'http://172.20.0.1/',
+    'http://192.168.101.244/',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://[::1]/',
+    'not a url',
+  ]
+  for (const u of bad) assert.equal(isFetchableUrl(u), false, u)
+  for (const u of ['https://nodejs.org/zh-cn', 'http://rust-lang.org/']) {
+    assert.equal(isFetchableUrl(u), true, u)
+  }
+})

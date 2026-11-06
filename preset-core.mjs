@@ -125,9 +125,34 @@ export function guessYear(text) {
  * 所以这里直接把页面抓下来、去标签、抠出版本号与 LTS 上下文，
  * 不让 1.7B 去"读摘要猜答案"。
  */
+/** 只允许公网 http(s)：拒绝 file:/ftp: 与回环/私网/链路本地地址，避免被搜索结果带去 SSRF。 */
+export function isFetchableUrl(rawUrl) {
+  let u
+  try {
+    u = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false
+  if (host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return false
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    if (a === 0 || a === 10 || a === 127) return false
+    if (a === 169 && b === 254) return false
+    if (a === 172 && b >= 16 && b <= 31) return false
+    if (a === 192 && b === 168) return false
+    if (a === 100 && b >= 64 && b <= 127) return false
+  }
+  return true
+}
+
 export async function fetchExcerpt(rawUrl, opts = {}) {
   const timeoutMs = Number(opts.timeoutMs) || 8000
   const maxChars = Number(opts.maxChars) || 1500
+  if (!isFetchableUrl(rawUrl)) return null
   try {
     const res = await fetch(rawUrl, {
       signal: AbortSignal.timeout(timeoutMs),
@@ -135,7 +160,13 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
       redirect: 'follow',
     })
     if (!res.ok) return null
-    const raw = await res.text()
+    const type = String(res.headers.get('content-type') || '').toLowerCase()
+    if (type && !/text\/|json|xml/.test(type)) return null
+    const len = Number(res.headers.get('content-length') || 0)
+    if (len > 2_000_000) return null
+    let raw = await res.text()
+    // 先截断再跑正则：避免对几 MB 的页面做全文匹配
+    if (raw.length > 400_000) raw = raw.slice(0, 400_000)
     const text = stripTags(
       raw
         .replace(/<script[\s\S]*?<\/script>/gi, ' ')

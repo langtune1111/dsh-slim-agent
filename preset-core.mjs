@@ -555,7 +555,15 @@ export function apply(ctx, config = {}) {
         refs.push('[' + tag + '] ' + url)
         lines.push('[' + tag + '] ' + classifySource(url) + ' ' + title + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要') + '  <' + url + '>')
       }
+      // 结论前置：把最相关的一条先摊开，避免小模型只读到编号就去找本地文件
+      const top = items[0] || {}
+      const topTitle = String(top.title || '').replace(/\s+/g, ' ').slice(0, 60)
+      const topSnip = String(top.snippet || '').replace(/\s+/g, ' ').slice(0, 120)
+      if (topTitle || topSnip) {
+        lines.unshift('[S0] 结论候选（来自 ' + classifySource(String(top.url || '')) + '）：' + (topTitle ? topTitle + ' — ' : '') + (topSnip || '无摘要'))
+      }
       lines.push('')
+      lines.push('[S0] 工作区里的项目文件记录的是**历史锁定版本**，涉及「当前 / 最新」时以此处检索结果为准，不要照抄文件里的版本号。')
       lines.push('[S0] 引用格式（强制）：答案里每个来自上述来源的事实，必须紧跟方括号编号，例如「最新 LTS 是 v26.13.0 [S1]」。')
       lines.push('[S0] 答案末尾必须单列一行：来源: ' + refs.join(' | '))
       lines.push('[S0] 找不到来源支持的内容，一律写「未证实」，不要编造编号。')

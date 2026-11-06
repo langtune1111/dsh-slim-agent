@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-07 | `0.4.2-beta.1` | 测量工具修正：fixtures 按题投放 + 结论前置 | 18 次（3 组） | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.4.2-beta.1__instrument-fix/REPORT.md) · [数据](history/2026-11-07__v0.4.2-beta.1__instrument-fix/data/) |
 | 2026-11-07 | `0.4.1-beta.1` | 0.4.0 审计 + 四项缺陷修复 | 6 次回归 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.4.1-beta.1__audit-fixes/REPORT.md) · [数据](history/2026-11-07__v0.4.1-beta.1__audit-fixes/data/) |
 | 2026-11-05 | `0.4.0-beta.1` | 答复通道打通（convergeFinalOnly + final_answer） | 18 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-05__v0.4.0-beta.1__answer-channel-fixed/REPORT.md) · [数据](history/2026-11-05__v0.4.0-beta.1__answer-channel-fixed/data/) |
 | 2026-11-05 | `0.3.3-beta.1` | 答复通道实验（收敛指令 / final_answer，各 12 次） | 24 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-05__v0.3.3-beta.1__answer-channel/REPORT.md) · [数据](history/2026-11-05__v0.3.3-beta.1__answer-channel/data/) |

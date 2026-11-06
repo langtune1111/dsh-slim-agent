@@ -32,6 +32,7 @@
 > 思考模式无正向作用（LFM3 10→11，Qwen 13→10），却把平均耗时推到 155–174 s、74–91% 撞墙钟。
 > 搜索接线后对照组确实会搜了（平均 2.5 次/轮），但仍搜不出正确答案；引用约束 V1 组 PASS 全为 0。
 >
+> - 🖼 **安装验证（Windows + Debian 截图）** → [docs/install-verify](docs/install-verify/README.md)
 > - 📊 **最新 Benchmark 报告** → [答复通道打通：0 → 12/12 可读答复，首个研究题 PASS（2026-11-05）](benchmark/history/2026-11-05__v0.4.0-alpha.1__answer-channel-fixed/REPORT.md)
 
 

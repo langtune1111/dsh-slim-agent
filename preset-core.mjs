@@ -114,6 +114,47 @@ export function guessYear(text) {
   return ` (${matches[matches.length - 1]})`
 }
 
+/**
+ * 抓取首条结果并做**确定性**抽取。
+ *
+ * 实测（2026-11-07）：Bing 返回的摘要里几乎不含版本号这类事实——
+ * 问「Node.js 最新 LTS」拿到的是官网首页摘要，一个字都没有版本。
+ * 但把同一个 URL 抓下来，首页正文里明明白白写着 `v26.13.0 Latest LTS`。
+ * 也就是说：缺的不是模型的理解力，是**喂给它的材料**。
+ *
+ * 所以这里直接把页面抓下来、去标签、抠出版本号与 LTS 上下文，
+ * 不让 1.7B 去"读摘要猜答案"。
+ */
+export async function fetchExcerpt(rawUrl, opts = {}) {
+  const timeoutMs = Number(opts.timeoutMs) || 8000
+  const maxChars = Number(opts.maxChars) || 1500
+  try {
+    const res = await fetch(rawUrl, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; dsh-slim-agent)' },
+      redirect: 'follow',
+    })
+    if (!res.ok) return null
+    const raw = await res.text()
+    const text = stripTags(
+      raw
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' '),
+    )
+    const versions = Array.from(new Set(String(text).match(/v?\d+\.\d+\.\d+/g) || [])).slice(0, 6)
+    const contexts = []
+    const re = /(latest\s*(lts|stable)|最新.*?(长期支持|lts)|lts)/gi
+    let m
+    while ((m = re.exec(text)) !== null && contexts.length < 3) {
+      contexts.push(text.slice(Math.max(0, m.index - 60), Math.min(text.length, m.index + 90)))
+    }
+    return { text: String(text).slice(0, maxChars), versions, contexts: contexts.map((c) => c.trim()) }
+  } catch {
+    return null
+  }
+}
+
 /* ───────────────────────────── 搜索 ───────────────────────────── */
 
 const stripTags = (s) =>
@@ -313,6 +354,10 @@ export function apply(ctx, config = {}) {
     maxTurnsDeep: Number(config.maxTurnsDeep) || 12,
     maxToolCalls: Number(config.maxToolCalls) || 15,
     maxSearches: config.maxSearches === undefined ? 5 : Math.max(0, Math.floor(Number(config.maxSearches) || 0)),
+    // 抓首条结果正文并做确定性抽取（只读一次、8 秒超时、失败静默）
+    fetchTopResult: config.fetchTopResult !== false,
+    fetchTimeoutMs: Number(config.fetchTimeoutMs) || 8000,
+    fetchMaxChars: Number(config.fetchMaxChars) || 1200,
     // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
     convergeMode: ['off', 'budget', 'hardCap'].includes(config.convergeMode) ? config.convergeMode : 'off',
     // 最终答复改由工具提交：1.7B 只会可靠地产生工具调用，不会可靠地写自然语言结论
@@ -554,6 +599,18 @@ export function apply(ctx, config = {}) {
         const tag = 'S' + (i + 1)
         refs.push('[' + tag + '] ' + url)
         lines.push('[' + tag + '] ' + classifySource(url) + ' ' + title + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要') + '  <' + url + '>')
+      }
+      // 抓首条正文做确定性抽取（不依赖模型理解摘要）
+      if (opts.fetchTopResult) {
+        const pick = items.find((it) => /nodejs\.org|rust-lang\.org|python\.org|go\.dev|github\.com|wikipedia\.org/.test(String(it.url || ''))) || items[0]
+        const target = String(pick?.url || '')
+        if (/^https?:\/\//.test(target)) {
+          const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
+          if (ex) {
+            if (ex.versions.length) lines.push('[S0] 页面实测版本号（来自 ' + classifySource(target) + '）：' + ex.versions.join(' / '))
+            ex.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 原文片段：' + c))
+          }
+        }
       }
       // 结论前置：把最相关的一条先摊开，避免小模型只读到编号就去找本地文件
       const top = items[0] || {}

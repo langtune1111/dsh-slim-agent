@@ -431,6 +431,9 @@ export function apply(ctx, config = {}) {
     callBudget.delete(key)
   }
 
+  /* 最近一次检索的来源表：bucket -> [{tag,url,title}]，供 final_answer 回填真实 URL。 */
+  const lastSources = new Map()
+
   const bumpSearchBudget = (exec) => {
     const key = budgetKey(exec)
     const next = (searchBudget.get(key) ?? 0) + 1
@@ -622,6 +625,7 @@ export function apply(ctx, config = {}) {
       const max = Math.min(items.length, opts.maxResults)
       const lines = ['[S0] 本次检索 "' + query + '" via ' + engine + '，共 ' + max + ' 条候选来源，编号如下：']
       const refs = []
+      const refTable = []
       for (let i = 0; i < max; i += 1) {
         const item = items[i]
         const url = item.url || ''
@@ -629,6 +633,7 @@ export function apply(ctx, config = {}) {
         const snippet = String(item.snippet || '').replace(/\s+/g, ' ').slice(0, 80)
         const tag = 'S' + (i + 1)
         refs.push('[' + tag + '] ' + url)
+        refTable.push({ tag, url, title })
         lines.push('[' + tag + '] ' + classifySource(url) + ' ' + title + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要') + '  <' + url + '>')
       }
       // 抓首条正文做确定性抽取（不依赖模型理解摘要）
@@ -653,6 +658,7 @@ export function apply(ctx, config = {}) {
       lines.push('')
       lines.push('[S0] 工作区里的项目文件记录的是**历史锁定版本**，涉及「当前 / 最新」时以此处检索结果为准，不要照抄文件里的版本号。')
       lines.push('[S0] 引用格式（强制）：答案里每个来自上述来源的事实，必须紧跟方括号编号，例如「最新 LTS 是 v26.13.0 [S1]」。')
+      try { lastSources.set(budgetKey(exec), refTable) } catch {}
       lines.push('[S0] 答案末尾必须单列一行：来源: ' + refs.join(' | '))
       lines.push('[S0] 找不到来源支持的内容，一律写「未证实」，不要编造编号。')
       return { result: lines.join('\n') }
@@ -684,11 +690,27 @@ export function apply(ctx, config = {}) {
       async execute(args, exec) {
         const answer = String(args.answer ?? '').trim()
         const sources = Array.isArray(args.sources) ? args.sources.map((x) => String(x)) : []
-        audit({ kind: 'final_answer', answer: answer.slice(0, 200), sources })
+        // 把 [S1] 这类编号展开成真实 URL：小模型几乎不会自己写 URL，
+        // 但让它记住一个短编号是可行的，所以由框架侧回填。
+        const table = lastSources.get(budgetKey(exec)) || []
+        const pick = (label) => {
+          const m = String(label).match(/S(\d+)/i)
+          if (m) return table[Number(m[1]) - 1]
+          if (/^https?:\/\//i.test(String(label))) return { tag: label, url: String(label), title: '' }
+          return null
+        }
+        let expanded = sources.map(pick).filter(Boolean)
+        if (expanded.length === 0) expanded = table.slice(0, 2)
+        const citeText = expanded.length
+          ? '来源: ' + expanded.map((r) => (r.tag && /^S\d+$/i.test(r.tag) ? '[' + r.tag + '] ' : '') + r.url).join(' | ')
+          : ''
+        const full = citeText ? (answer + '\n' + citeText) : answer
+        audit({ kind: 'final_answer', answer: answer.slice(0, 200), sources,
+                expanded: expanded.map((r) => r.url).slice(0, 4) })
         try {
           if (typeof exec?.concludeTurn === 'function') exec.concludeTurn()
         } catch {}
-        return { status: '[FINAL] ' + answer + (sources.length ? '\n来源: ' + sources.join(' | ') : '') }
+        return { status: '[FINAL] ' + full }
       },
     })
   }

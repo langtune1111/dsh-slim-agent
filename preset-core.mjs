@@ -658,7 +658,16 @@ export function apply(ctx, config = {}) {
       lines.push('')
       lines.push('[S0] 工作区里的项目文件记录的是**历史锁定版本**，涉及「当前 / 最新」时以此处检索结果为准，不要照抄文件里的版本号。')
       lines.push('[S0] 引用格式（强制）：答案里每个来自上述来源的事实，必须紧跟方括号编号，例如「最新 LTS 是 v26.13.0 [S1]」。')
-      try { lastSources.set(budgetKey(exec), refTable) } catch {}
+      try {
+        const sk = budgetKey(exec)
+        lastSources.delete(sk)
+        lastSources.set(sk, refTable)
+        // 桌面端是长生命周期进程：只保留最近 32 个会话的来源表，防止无界增长
+        while (lastSources.size > 32) {
+          const oldest = lastSources.keys().next().value
+          lastSources.delete(oldest)
+        }
+      } catch {}
       lines.push('[S0] 答案末尾必须单列一行：来源: ' + refs.join(' | '))
       lines.push('[S0] 找不到来源支持的内容，一律写「未证实」，不要编造编号。')
       return { result: lines.join('\n') }
@@ -912,6 +921,7 @@ export function apply(ctx, config = {}) {
           const key = bucketOf(session)
           searchBudget.delete(key)
           callBudget.delete(key)
+          lastSources.delete(key)
         }
       } catch {}
     }))

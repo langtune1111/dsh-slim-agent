@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-07 | `0.5.0-beta.1` | 0.5.0-alpha 审计（资源生命周期修复 + 口径复核） | 复核 alpha 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.5.0-beta.1__audit/REPORT.md) |
 | 2026-11-07 | `0.5.0-alpha.1` | 框架侧自动回填引用（编号 → 真实 URL） | 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.5.0-alpha.1__auto-citation/REPORT.md) · [数据](history/2026-11-07__v0.5.0-alpha.1__auto-citation/data/) |
 | 2026-11-07 | `0.4.5-beta.1` | 抓取加固：SSRF 防护 + 体积/类型限制 | 6 次回归 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.4.5-beta.1__fetch-hardening/REPORT.md) · [数据](history/2026-11-07__v0.4.5-beta.1__fetch-hardening/data/) |
 | 2026-11-07 | `0.4.4-beta.1` | 检索修复：抓首条正文 + 确定性版本抽取（LFM3 vs Qwen 4B 对照） | 24 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.4.4-beta.1__retrieval-fix/REPORT.md) · [数据](history/2026-11-07__v0.4.4-beta.1__retrieval-fix/data/) |

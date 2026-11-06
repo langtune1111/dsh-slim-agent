@@ -165,6 +165,17 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
     const len = Number(res.headers.get('content-length') || 0)
     if (len > 2_000_000) return null
     let raw = await res.text()
+    const linkHits = []
+    try {
+      const linkRe = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{0,80}?)<\/a>/gi
+      let lm
+      while ((lm = linkRe.exec(raw)) !== null && linkHits.length < 40) {
+        const href = lm[1]
+        const text = stripTags(lm[2])
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue
+        linkHits.push({ href, text })
+      }
+    } catch {}
     // 先截断再跑正则：避免对几 MB 的页面做全文匹配
     if (raw.length > 400_000) raw = raw.slice(0, 400_000)
     const text = stripTags(
@@ -180,7 +191,7 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
     while ((m = re.exec(text)) !== null && contexts.length < 3) {
       contexts.push(text.slice(Math.max(0, m.index - 60), Math.min(text.length, m.index + 90)))
     }
-    return { text: String(text).slice(0, maxChars), versions, contexts: contexts.map((c) => c.trim()) }
+    return { text: String(text).slice(0, maxChars), versions, contexts: contexts.map((c) => c.trim()), links: linkHits, base: rawUrl }
   } catch {
     return null
   }
@@ -389,6 +400,7 @@ export function apply(ctx, config = {}) {
     fetchTopResult: config.fetchTopResult !== false,
     fetchTimeoutMs: Number(config.fetchTimeoutMs) || 8000,
     fetchMaxChars: Number(config.fetchMaxChars) || 1200,
+    fetchFollowLinks: config.fetchFollowLinks !== false,
     // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
     convergeMode: ['off', 'budget', 'hardCap'].includes(config.convergeMode) ? config.convergeMode : 'off',
     // 最终答复改由工具提交：1.7B 只会可靠地产生工具调用，不会可靠地写自然语言结论
@@ -645,6 +657,40 @@ export function apply(ctx, config = {}) {
           if (ex) {
             if (ex.versions.length) lines.push('[S0] 页面实测版本号（来自 ' + classifySource(target) + '）：' + ex.versions.join(' / '))
             ex.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 原文片段：' + c))
+            // 首页/下载页常常没有"代号/发布日期"。实测路径：
+            //   nodejs.org -> /download -> /about/previous-releases（含 v26 Lithium）
+            // 所以做最多两层、最多两次的顺链抓取，优先抓"发布/历史版本"这类链接。
+            if (opts.fetchFollowLinks && Array.isArray(ex.links)) {
+              const visited = new Set([target])
+              let frontier = ex.links
+              let budget = 2
+              for (let depth = 0; depth < 2 && budget > 0; depth += 1) {
+                const scored = []
+                for (const l of frontier) {
+                  let abs
+                  try { abs = new URL(l.href, ex.base).toString() } catch { continue }
+                  if (!isFetchableUrl(abs) || visited.has(abs)) continue
+                  const hay = String(l.text) + ' ' + String(l.href)
+                  let score = 0
+                  if (/previous-releases|release|changelog|versions?|archive/i.test(hay)) score += 3
+                  if (/download|about|docs/i.test(hay)) score += 1
+                  if (score > 0) scored.push({ abs, score })
+                }
+                scored.sort((a, b) => b.score - a.score)
+                let next = null
+                for (const c of scored) { if (!visited.has(c.abs)) { next = c; break } }
+                if (!next) break
+                visited.add(next.abs)
+                budget -= 1
+                const ex2 = await fetchExcerpt(next.abs, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
+                if (!ex2) break
+                if (ex2.versions.length) lines.push('[S0] 顺链页面版本号（' + next.abs + '）：' + ex2.versions.join(' / '))
+                ex2.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 顺链页面原文：' + c))
+                if (!Array.isArray(ex2.links) || ex2.links.length === 0) break
+                frontier = ex2.links
+                ex.base = ex2.base
+              }
+            }
           }
         }
       }

@@ -74,3 +74,23 @@ E:\tmp\dsh021\node_modules\.bin\dsh --profile slim021 --port 9711
 - Windows：测试用的 `slimwin` profile 已删除；`slim021` 保留可复现。
 - Windows：`~/.dsh/cordis.patch.yml` 已还原为安装前状态（与备份 sha256 一致）。
 - Debian：`slimdeb` profile 保留；测试用 web 服务已停止。
+
+## 桌面端安装记录（2026-11-06 22:0x）
+
+`dsh plugin --profile desktop add` 会被拒绝：
+
+```
+error: profile "desktop" is managed exclusively by the Electron application
+```
+
+因此按以下方式手工装入桌面 profile：
+
+1. 解包 `dsh-slim-agent-0.4.0-alpha.1.tgz` 到 `~/.dsh/profiles/desktop/node_modules/dsh-slim-agent`
+2. `~/.dsh/profiles/desktop/package.json`：
+   - `dependencies` 增加 `"dsh-slim-agent": "0.4.0-alpha.1"`
+   - `dsh.profile.bundles` 追加 `"dsh-slim-agent"`
+3. 删除 `~/.dsh/cordis.patch.yml` 里 0.3.x 时代的旧托管块（与新版插件重复注册同一个 preset id）
+4. 用新版 `preset-core.mjs` 覆盖 `~/.dsh/.agent-presets/_slim-code/core.mjs`（两者 sha256 一致）
+5. **重启桌面应用**后生效
+
+回滚：备份在 `G:\temp\desktop-profile-backup-<时间戳>\`（package.json / cordis.patch.yml / pnpm-lock.yaml）。

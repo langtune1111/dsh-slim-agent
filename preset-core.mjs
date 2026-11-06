@@ -331,28 +331,36 @@ export function apply(ctx, config = {}) {
   const sem = new AsyncSemaphore(opts.concurrencyLimit)
   const disposers = []
 
-  /* 检索计数：按会话工作目录分桶。
-   * DSH 的 exec 并不保证带 agent 引用（实测拿不到），所以用 bash 工具同样的取法：
-   * 会话 header.cwd，取不到就退回 process.cwd()。一次运行一个工作目录，天然隔离。 */
+  /* 计数分桶：优先用 session.id（一次会话一个桶），拿不到再退回 cwd。
+   * 早先只按 cwd 分桶，在桌面端多会话共用同一工作目录时会把预算串到一起，
+   * 而且进程内永不重置——这是 0.4.0 的一个真实缺陷。 */
   const searchBudget = new Map()
-  const budgetKey = (exec) => {
+  const callBudget = new Map()
+  const bucketOf = (holder) => {
     try {
-      return exec?.agent?.session?.header?.cwd
-        ?? exec?.session?.header?.cwd
-        ?? process.cwd()
-    } catch {
-      return process.cwd()
-    }
+      const session = holder?.agent?.session ?? holder?.session ?? holder
+      const id = session?.id ?? session?.header?.id
+      if (id) return 'sid:' + String(id)
+      const cwd = session?.header?.cwd
+      if (cwd) return 'cwd:' + String(cwd)
+    } catch {}
+    return 'cwd:' + process.cwd()
   }
+  const budgetKey = (exec) => bucketOf(exec)
+
+  /** 新的一轮开始：清掉该会话的计数（预算按"轮"而不是按"进程生命周期"）。 */
+  const resetTurn = (holder) => {
+    const key = bucketOf(holder)
+    searchBudget.delete(key)
+    callBudget.delete(key)
+  }
+
   const bumpSearchBudget = (exec) => {
     const key = budgetKey(exec)
     const next = (searchBudget.get(key) ?? 0) + 1
     searchBudget.set(key, next)
     return next
   }
-
-  /* 主代理的工具调用总计数，与搜索计数同一分桶键。 */
-  const callBudget = new Map()
   const bumpCallBudget = (exec) => {
     const key = budgetKey(exec)
     const next = (callBudget.get(key) ?? 0) + 1
@@ -375,7 +383,11 @@ export function apply(ctx, config = {}) {
     ].join(''),
   }
 
+  /* 收敛必须有出口：final_answer 关掉时不做收敛。
+   * 实测工具面一旦为空，1.7B 会把 <tool_call> 当文本写出来，产出不可用。 */
+  const canConverge = opts.convergeFinalOnly && opts.enableFinalAnswer
   const isConverged = (key) => {
+    if (!canConverge) return false
     if (opts.convergeMode === 'budget') return (searchBudget.get(key) ?? 0) > opts.maxSearches
     if (opts.convergeMode === 'hardCap') return (callBudget.get(key) ?? 0) >= opts.hardCap
     return false
@@ -724,18 +736,13 @@ export function apply(ctx, config = {}) {
       const header = context?.agent?.session?.header
       const isChild = header !== undefined && (header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0)
       if (isChild) return assembled
-      const key = header?.cwd ?? process.cwd()
+      const key = bucketOf(context?.agent?.session ?? context?.agent)
       if (isConverged(key)) {
-        audit({ kind: 'converge', mode: opts.convergeMode, action: 'tools-cleared',
-                searches: searchBudget.get(key) ?? 0, calls: callBudget.get(key) ?? 0 })
         const sections = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
         if (!sections.some((sec) => sec?.name === CONVERGE_SECTION.name)) sections.push(CONVERGE_SECTION)
-        // 留一个出口：只保留 final_answer，其余工具全部撤掉
-        const keepFinal = opts.convergeFinalOnly && opts.enableFinalAnswer
-        const tools = keepFinal
-          ? (Array.isArray(assembled.tools) ? assembled.tools : []).filter((t) => t?.name === 'final_answer')
-          : []
-        audit({ kind: 'converge', mode: opts.convergeMode, action: keepFinal ? 'final-only' : 'tools-cleared',
+        // 收敛 == 只留 final_answer 这一个出口
+        const tools = (Array.isArray(assembled.tools) ? assembled.tools : []).filter((t) => t?.name === 'final_answer')
+        audit({ kind: 'converge', mode: opts.convergeMode, action: 'final-only',
                 searches: searchBudget.get(key) ?? 0, calls: callBudget.get(key) ?? 0, kept: tools.length })
         return { ...assembled, tools, sections }
       }
@@ -761,20 +768,36 @@ export function apply(ctx, config = {}) {
       const isChild = header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0
       if (isChild) return next()
       const name = exec?.name ?? exec?.tool?.name ?? exec?.call?.name
-      const key = header.cwd ?? process.cwd()
-      const calls = bumpCallBudget(exec)
+      const key = budgetKey(exec)
       if (isConverged(key)) {
-        if (opts.convergeFinalOnly && opts.enableFinalAnswer && name === 'final_answer') return next()
-        audit({ kind: 'converge', mode: opts.convergeMode, action: 'deny-call', tool: name, calls })
+        if (name === 'final_answer') return next()
+        audit({ kind: 'converge', mode: opts.convergeMode, action: 'deny-call', tool: name,
+                calls: callBudget.get(key) ?? 0 })
         return { kind: 'deny', reason: '[slim] 本轮工具已停用：请用 final_answer 提交结论，无法确认的写「未证实」' }
       }
       if (typeof name === 'string' && name !== '' && !allow.has(name)) {
         try { ctx.logger?.warn?.('[slim-core] denied out-of-whitelist tool: ' + name) } catch {}
         return { kind: 'deny', reason: `[slim] tool "${name}" is outside the main-agent whitelist` }
       }
+      bumpCallBudget(exec)
     } catch {}
     return next()
   }, { prepend: true })
+
+  /* ── 7. 预算生命周期：每轮重置、会话结束清理 ─────────────────────── */
+  try {
+    disposers.push(ctx.on('session/event', (session, event) => {
+      try {
+        const type = event?.type ?? event?.name
+        if (type === 'turn/start') resetTurn(session)
+        else if (type === 'session/disposed') {
+          const key = bucketOf(session)
+          searchBudget.delete(key)
+          callBudget.delete(key)
+        }
+      } catch {}
+    }))
+  } catch {}
 
   return () => {
     for (const dispose of disposers.splice(0)) {

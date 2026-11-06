@@ -254,33 +254,52 @@ test('消融开关：enableTaskComplete=true 时回填旧的 task_complete（仅
   assert.deepEqual(result.tools.map((t) => t.name).sort(), ['bash', 'read', 'task_complete'])
 })
 
-test('收敛: budget 模式下搜索超限后 assemble 清空工具面', async () => {
+test('收敛: budget 模式下搜索超限后只保留 final_answer', async () => {
   const { ctx, handlers, registered } = makeCtx()
   apply(ctx, { bash: 'off', maxSearches: 0, convergeMode: 'budget' })
   const asm = handlers.find((h) => h.event === 'system-prompt/assemble')
   const search = registered.find((t) => t.name === 'web_search')
   assert.ok(search, 'web_search 必须注册')
-  const header = { cwd: '/tmp/converge-budget' }
+  const header = { id: 'sess-budget', cwd: '/tmp/converge-budget' }
+  const holder = { agent: { session: { id: 'sess-budget', header } } }
   // maxSearches=0 → 第一次调用即超预算并返回 [BUDGET]，不会真的联网
-  const first = await search.execute({ query: 'nodejs' }, { agent: { session: { header } } })
+  const first = await search.execute({ query: 'nodejs' }, holder)
   assert.match(first.result, /BUDGET/)
-  const tools = ['read', 'bash', 'web_search'].map((n) => ({ name: n }))
-  const after = await asm.fn({}, { agent: { session: { header } } }, async () => ({ tools }))
-  assert.deepEqual(after.tools, [])
+  const tools = ['read', 'bash', 'web_search', 'final_answer'].map((n) => ({ name: n }))
+  const after = await asm.fn({}, holder, async () => ({ tools }))
+  assert.deepEqual(after.tools.map((t) => t.name), ['final_answer'])
 })
 
-test('收敛: hardCap 模式下工具调用达上限后 my assemble 清空', async () => {
-  const { ctx, handlers, registered } = makeCtx()
+test('收敛: hardCap 模式下达上限后拒绝越界调用，final_answer 仍放行', async () => {
+  const { ctx, handlers } = makeCtx()
   apply(ctx, { bash: 'local', convergeMode: 'hardCap', hardCap: 2 })
-  const header = { cwd: '/tmp/converge-hardcap' }
+  const header = { id: 'sess-hardcap', cwd: '/tmp/converge-hardcap' }
+  const holder = { agent: { session: { id: 'sess-hardcap', header } } }
   const pre = handlers.find((h) => h.event === 'tools/pre-execute')
   const asm = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const allow = async () => ({ kind: 'allow' })
+  // 前两次调用放行并计数
+  assert.equal((await pre.fn({ name: 'read', agent: holder.agent }, allow)).kind, 'allow')
+  assert.equal((await pre.fn({ name: 'read', agent: holder.agent }, allow)).kind, 'allow')
+  // 第三次已收敛：普通工具被拒
+  const denied = await pre.fn({ name: 'read', agent: holder.agent }, allow)
+  assert.equal(denied.kind, 'deny')
+  // 出口仍可用
+  const finalOk = await pre.fn({ name: 'final_answer', agent: holder.agent }, allow)
+  assert.equal(finalOk.kind, 'allow')
+  const tools = ['read', 'bash', 'final_answer'].map((n) => ({ name: n }))
+  const after = await asm.fn({}, holder, async () => ({ tools }))
+  assert.deepEqual(after.tools.map((t) => t.name), ['final_answer'])
+})
+
+test('收敛: enableFinalAnswer=false 时不收敛（避免空工具面）', async () => {
+  const { ctx, handlers } = makeCtx()
+  apply(ctx, { bash: 'off', convergeMode: 'hardCap', hardCap: 0, enableFinalAnswer: false })
+  const asm = handlers.find((h) => h.event === 'system-prompt/assemble')
+  const holder = { agent: { session: { id: 'sess-nofinal', header: { id: 'sess-nofinal', cwd: '/tmp/x' } } } }
   const tools = ['read', 'bash', 'web_search'].map((n) => ({ name: n }))
-  const ok1 = await pre.fn({ name: 'read', agent: { session: { header } } }, async () => ({ kind: 'allow' }))
-  assert.equal(ok1.kind, 'allow')
-  const denied = await pre.fn({ name: 'read', agent: { session: { header } } }, async () => ({ kind: 'allow' }))
-  const after = await asm.fn({}, { agent: { session: { header } } }, async () => ({ tools }))
-  assert.equal(denied.kind === 'deny' || after.tools.length === 0, true)
+  const after = await asm.fn({}, holder, async () => ({ tools }))
+  assert.deepEqual(after.tools.map((t) => t.name).sort(), ['bash', 'read', 'web_search'])
 })
 
 test('收敛: 子代理会话不受收敛影响', async () => {

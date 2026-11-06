@@ -100,7 +100,7 @@ export function install(logger, config = {}) {
 
     if (next === original) {
       logger?.info?.('[dsh-slim-agent] preset declaration already up to date')
-      return { ok: true, unchanged: true, corePath, patchPath }
+      return { ok: true, unchanged: true, created: false, corePath, patchPath }
     }
 
     // 1. 备份失败硬熔断：若原有配置存在但备份写入失败，立即安全中止，绝不冒着损坏用户配置的风险覆写
@@ -125,19 +125,25 @@ export function install(logger, config = {}) {
     }
 
     logger?.info?.('[dsh-slim-agent] preset declaration written to ' + patchPath + ' (restart DSH to apply)')
-    return { ok: true, corePath, patchPath }
+    return { ok: true, created: true, corePath, patchPath }
   } catch (error) {
     logger?.warn?.('[dsh-slim-agent] install failed: ' + String(error))
-    return { ok: false, error: String(error) }
+    return { ok: false, created: false, error: String(error) }
   }
 }
 
 export function apply(ctx, config = {}) {
   // 1. 静态持久化写盘（幂等、带备份、原子写）
-  install(ctx.logger, config)
+  const installed = install(ctx.logger, config)
 
-  // 2. 运行时即刻激活（重启一次即用的关键突破）
-  if (typeof ctx?.inject === 'function') {
+  // 2. 运行时即刻激活 —— 只在"托管块是这一轮刚写进去、本次启动还没生效"时才注册。
+  //    如果托管块早就存在，说明加载器已经按 patch 层注册过同名预设，再注册一次会抛
+  //    `Duplicate agent preset: local-slim-agent`（实测在桌面端与 web profile 都会出现）。
+  const needsRuntimeRegistration = installed?.created === true
+  if (!needsRuntimeRegistration) {
+    ctx.logger?.info?.('[dsh-slim-agent] preset already declared in the patch layer; skipping runtime registration')
+  }
+  if (needsRuntimeRegistration && typeof ctx?.inject === 'function') {
     ctx.inject(['agentPresets'], async (presetCtx) => {
       try {
         const home = process.env.DSH_HOME || join(homedir(), '.dsh')

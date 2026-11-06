@@ -1,6 +1,6 @@
 # 安装验证记录（Windows + Debian）
 
-> 验证日期：2026-11-06　插件版本：`dsh-slim-agent@0.4.0-alpha.1`
+> 验证日期：2026-11-06　插件版本：`dsh-slim-agent@0.4.0-beta.1`
 
 ## 结论
 
@@ -20,7 +20,7 @@
 ## 安装命令（两边一致）
 
 ```bash
-dsh plugin --profile <profile> add ./dsh-slim-agent-0.4.0-alpha.1.tgz
+dsh plugin --profile <profile> add ./dsh-slim-agent-0.4.0-beta.1.tgz
 # web 形态还需要把 web-app 加进 bundles
 dsh plugin --profile <profile> add @deepseek-ai/dsh-web-app@0.2.1-rc.5
 ```
@@ -85,9 +85,9 @@ error: profile "desktop" is managed exclusively by the Electron application
 
 因此按以下方式手工装入桌面 profile：
 
-1. 解包 `dsh-slim-agent-0.4.0-alpha.1.tgz` 到 `~/.dsh/profiles/desktop/node_modules/dsh-slim-agent`
+1. 解包 `dsh-slim-agent-0.4.0-beta.1.tgz` 到 `~/.dsh/profiles/desktop/node_modules/dsh-slim-agent`
 2. `~/.dsh/profiles/desktop/package.json`：
-   - `dependencies` 增加 `"dsh-slim-agent": "0.4.0-alpha.1"`
+   - `dependencies` 增加 `"dsh-slim-agent": "0.4.0-beta.1"`
    - `dsh.profile.bundles` 追加 `"dsh-slim-agent"`
 3. 删除 `~/.dsh/cordis.patch.yml` 里 0.3.x 时代的旧托管块（与新版插件重复注册同一个 preset id）
 4. 用新版 `preset-core.mjs` 覆盖 `~/.dsh/.agent-presets/_slim-code/core.mjs`（两者 sha256 一致）

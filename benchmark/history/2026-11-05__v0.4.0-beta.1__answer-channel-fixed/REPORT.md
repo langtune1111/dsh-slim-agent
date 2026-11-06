@@ -1,4 +1,4 @@
-# 答复通道打通（0.4.0-alpha.1，2026-11-05）
+# 答复通道打通（0.4.0-beta.1，2026-11-05）
 
 > 模型 LFM3 1.7B　上下文 65536　思考关　`convergeMode: hardCap` + `final_answer`
 > 数据：[`data/finonly.ndjson`](data/finonly.ndjson)（6 次）、[`data/alpha_confirm.ndjson`](data/alpha_confirm.ndjson)（12 次）
@@ -24,7 +24,7 @@ llama.cpp 的解析本身没问题——单独测单轮、多轮、截断（`max
 
 ## 3. 结果
 
-| 指标 | 改前（0.3.3） | 改后（0.4.0-alpha.1） |
+| 指标 | 改前（0.3.3） | 改后（0.4.0-beta.1） |
 |---|---|---|
 | 调用 `final_answer` | 0/6 | **12/12** |
 | 真实自然语言答复 | 0/12 | **12/12** |

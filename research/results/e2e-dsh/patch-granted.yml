@@ -1,0 +1,13 @@
+- insert:
+    - id: agent-security-guard
+      name: dsh-slim-agent/security
+      config:
+        defaultTaskProfile: demo
+        taskProfiles:
+          demo:
+            allowTools: ['read', 'bash', 'final_answer']
+            allowPaths: ['/root/sec-eval/run']
+            network: none
+            shell: workspace
+            maxToolCalls: 20
+            ttlSeconds: 600

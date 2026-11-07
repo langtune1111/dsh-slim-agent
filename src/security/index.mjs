@@ -273,8 +273,32 @@ export function apply (ctx, config = {}) {
     return next()
   }, { prepend: true }))
 
-  // 观察工具结果：登记来源 + 抽取污点；外部内容的来源标签可选注入下一轮
+  // 观察工具结果：登记来源 + 抽取污点。
+  // 用 tools/result（纯观察事件，不参与决策）而不是 post-execute——
+  // 实测在 post-execute 里返回/透传决策会让宿主抛
+  // "Cannot read properties of undefined (reading 'kind')"，而观察结果不需要改决策。
   if (config.observeResults !== false) {
+    try {
+      disposers.push(ctx.on('tools/result', (exec, result) => {
+        try {
+          const info = sessionInfoOf(exec)
+          guard.observeResult({
+            sessionId: info.sessionId,
+            callId: exec?.callId,
+            toolName: exec?.name ?? exec?.tool?.name,
+            args: exec?.arguments ?? exec?.args ?? {},
+            result
+          })
+        } catch (error) {
+          try { ctx?.logger?.warn?.('[security-guard] 结果观察失败（不影响主流程）: ' + String(error)) } catch {}
+        }
+      }))
+    } catch {}
+  }
+
+  // 外部内容来源标签：需要往下一轮上下文注入，属于实验性能力，
+  // 默认关闭；开启前必须先在目标 DSH 版本上验证 additionalContexts 的行为。
+  if (config.injectUntrustedLabel === true) {
     disposers.push(ctx.on('tools/post-execute', async (exec, result, next) => {
       const decided = await next()
       try {
@@ -286,19 +310,15 @@ export function apply (ctx, config = {}) {
           args: exec?.arguments ?? exec?.args ?? {},
           result
         })
-        const label = config.labelExternalContent !== false && observed.entry.untrusted && observed.text !== ''
-        if (label) {
+        if (observed.entry.untrusted && observed.text !== '') {
           const message = { role: 'user', content: [{ type: 'text', text: buildUntrustedLabel(observed.entry) }] }
           const existing = Array.isArray(decided?.additionalContexts) ? decided.additionalContexts : []
           return { ...(decided ?? { kind: 'accept' }), additionalContexts: [...existing, message] }
         }
-      } catch (error) {
-        try { ctx?.logger?.warn?.('[security-guard] 结果观察失败（不影响主流程）: ' + String(error)) } catch {}
-      }
+      } catch {}
       return decided
-    }, { prepend: true }))
+    }))
   }
-
   // 每轮开始：没有授权的会话按 defaultTaskProfile 开任务（未配置则不授权）
   if (config.defaultTaskProfile) {
     disposers.push(ctx.on('session/event', (session, event) => {

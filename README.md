@@ -33,7 +33,7 @@
 > 搜索接线后对照组确实会搜了（平均 2.5 次/轮），但仍搜不出正确答案；引用约束 V1 组 PASS 全为 0。
 >
 > - 🖼 **安装验证（Windows + Debian 截图）** → [docs/install-verify](docs/install-verify/README.md)
-> - 📊 **最新 Benchmark 报告** → [顺链抓取：首次拿到「版本 + 代号」的正确带引用答案（2026-11-07）](benchmark/history/2026-11-07__v0.5.1-beta.1__two-hop-fetch/REPORT.md)
+> - 📊 **最新 Benchmark 报告** → [收尾全量基线：PASS 2/36 → 8/36，D 类 5/6（2026-11-07）](benchmark/history/2026-11-07__v0.5.1-beta.1__qwen-full-suite/REPORT.md)
 
 
 在短上下文（4K / 8K）下运行全功能 Agent 时，数十个工具定义与长篇网页正文极易占满上下文窗口，并导致小模型产生工具选择幻觉。本插件采用“窄主代理 + 宽子代理”的分工模型：

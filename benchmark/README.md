@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-07 | `0.5.1-beta.1` | 收尾全量基线（18 题 × 2 轮，Qwen 4B） | 36 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.5.1-beta.1__qwen-full-suite/REPORT.md) · [数据](history/2026-11-07__v0.5.1-beta.1__qwen-full-suite/data/) |
 | 2026-11-07 | `0.5.1-beta.1` | 顺链抓取（最多 2 层）：代号/发布日期也能取到 | 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.5.1-beta.1__two-hop-fetch/REPORT.md) · [数据](history/2026-11-07__v0.5.1-beta.1__two-hop-fetch/data/) |
 | 2026-11-07 | `0.5.0-beta.1` | 0.5.0-alpha 审计（资源生命周期修复 + 口径复核） | 复核 alpha 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.5.0-beta.1__audit/REPORT.md) |
 | 2026-11-07 | `0.5.0-alpha.1` | 框架侧自动回填引用（编号 → 真实 URL） | 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-07__v0.5.0-alpha.1__auto-citation/REPORT.md) · [数据](history/2026-11-07__v0.5.0-alpha.1__auto-citation/data/) |

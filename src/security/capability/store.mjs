@@ -100,6 +100,8 @@ export function createGrantStore (options = {}) {
         expiresAt: parent.expiresAt,
         delegable: { tools: [], maxDepth: 0, maxToolCalls: 0 }
       })
+      // 记录父会话：父授权被撤销/回收后，子授权立即失效（不允许凭旧派生授权续用）
+      child.parentSessionId = String(parentSessionId)
       bySession.set(childSessionId, child)
       return child
     }

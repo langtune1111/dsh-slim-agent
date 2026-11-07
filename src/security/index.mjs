@@ -119,6 +119,20 @@ export function createGuard (config = {}) {
     }
 
     const grant = grants.get(sessionId)
+    // 子授权的生命周期不得超过父任务：父授权没了，子授权立即作废
+    if (grant?.parentSessionId && !grants.get(grant.parentSessionId)) {
+      const stamp = Date.now()
+      ledger.record({
+        sessionId,
+        taskId: grant.taskId ?? null,
+        tool: request?.toolName ?? null,
+        decision: 'deny',
+        reasonCode: REASON.GRANT_EXPIRED,
+        detail: 'parent grant gone: ' + grant.parentSessionId,
+        argDigest: digestValue(request?.args)
+      })
+      return { decision: 'deny', reasonCode: REASON.GRANT_EXPIRED, detail: 'parent task ended' }
+    }
     let taintView = null
     try {
       taintView = typeof config.taintProvider === 'function' ? config.taintProvider(sessionId) : taint.forSession(sessionId)
@@ -155,6 +169,41 @@ export function createGuard (config = {}) {
     return result
   }
 
+  const taskProfiles = config.taskProfiles && typeof config.taskProfiles === 'object' ? config.taskProfiles : {}
+
+  /**
+   * 用任务模板开一个任务：模板来自配置，不允许模型提供。
+   * 同一会话重复开任务会重置预算（任务级，而非进程级）。
+   */
+  function startTask (sessionId, profileName, overrides = {}) {
+    const profile = taskProfiles[profileName]
+    if (!profile) throw new Error('unknown task profile: ' + String(profileName))
+    const spec = {
+      ...profile,
+      ...overrides,
+      sessionId: String(sessionId),
+      taskId: overrides.taskId ?? (profileName + '@' + new Date().toISOString())
+    }
+    return grants.grant(spec)
+  }
+
+  /**
+   * 子代理首次出现时按父授权派生（只取交集，网络/shell 降级）。
+   * 父授权不存在或不可委派 → 返回 null，调用方按 NO_GRANT 处理。
+   */
+  function ensureChildGrant (childSessionId, parentSessionId, depth) {
+    if (!parentSessionId) return null
+    const existing = grants.get(childSessionId)
+    if (existing) return existing
+    const parent = grants.get(parentSessionId)
+    if (!parent) return null
+    try {
+      return grants.deriveChild(parentSessionId, String(childSessionId), { depth: Number.isFinite(depth) ? depth : 1 })
+    } catch {
+      return null
+    }
+  }
+
   return {
     policy,
     initError,
@@ -162,8 +211,11 @@ export function createGuard (config = {}) {
     ledger,
     provenance,
     taint,
+    taskProfiles,
     evaluateCall,
     observeResult,
+    startTask,
+    ensureChildGrant,
     grantTask: (spec) => grants.grant(spec),
     dispose () {
       grants.clear()
@@ -180,7 +232,8 @@ export function sessionInfoOf (exec) {
   const id = exec?.agent?.session?.id ?? header?.id ?? 'unknown'
   const depth = Number.isFinite(header?.delegationDepth) ? header.delegationDepth : 0
   const isChild = header?.origin === 'subagent' || depth > 0
-  return { sessionId: String(id), isChild, depth }
+  const parentSessionId = header?.parentSession ? String(header.parentSession) : null
+  return { sessionId: String(id), isChild, depth, parentSessionId, cwd: header?.cwd ?? null }
 }
 
 /**
@@ -201,6 +254,8 @@ export function apply (ctx, config = {}) {
   disposers.push(ctx.on('tools/pre-execute', async (exec, next) => {
     try {
       const info = sessionInfoOf(exec)
+      // 子代理首次调用时按父授权现场派生，拿不到就按 NO_GRANT 拒绝
+      if (info.isChild) guard.ensureChildGrant(info.sessionId, info.parentSessionId, info.depth)
       const result = guard.evaluateCall({
         sessionId: info.sessionId,
         toolName: exec?.name ?? exec?.tool?.name,
@@ -244,10 +299,33 @@ export function apply (ctx, config = {}) {
     }, { prepend: true }))
   }
 
+  // 每轮开始：没有授权的会话按 defaultTaskProfile 开任务（未配置则不授权）
+  if (config.defaultTaskProfile) {
+    disposers.push(ctx.on('session/event', (session, event) => {
+      try {
+        const type = event?.type ?? event?.name
+        if (type !== 'turn/start') return
+        const id = String(session?.id ?? session?.header?.id ?? '')
+        if (id === '') return
+        const header = session?.header
+        const isChild = header?.origin === 'subagent' || (header?.delegationDepth ?? 0) > 0
+        if (isChild) return
+        if (config.resetTaskPerTurn !== false || !guard.grants.get(id)) {
+          guard.startTask(id, config.defaultTaskProfile)
+        }
+      } catch (error) {
+        try { ctx?.logger?.warn?.('[security-guard] 自动授权失败: ' + String(error)) } catch {}
+      }
+    }))
+  }
+
   disposers.push(ctx.on('session/disposed', (session) => {
     try {
       const id = session?.id ?? session?.header?.id
-      if (id) guard.grants.revoke(String(id))
+      if (id) {
+        guard.grants.revoke(String(id))
+        guard.taint.clear(String(id))
+      }
     } catch {}
   }))
 

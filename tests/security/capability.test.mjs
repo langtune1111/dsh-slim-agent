@@ -111,10 +111,16 @@ test('engine: 子代理即使拿到工具，也不能用父的网络能力', () 
 
 test('sessionInfoOf: 主子代理身份识别', () => {
   const main = sessionInfoOf({ agent: { session: { id: 'm1', header: { id: 'm1', cwd: '/w' } } } })
-  assert.deepEqual(main, { sessionId: 'm1', isChild: false, depth: 0 })
+  assert.equal(main.sessionId, 'm1')
+  assert.equal(main.isChild, false)
+  assert.equal(main.depth, 0)
+  assert.equal(main.cwd, '/w')
+  assert.equal(main.parentSessionId, null)
 
   const child = sessionInfoOf({ agent: { session: { id: 'c1', header: { id: 'c1', origin: 'subagent', delegationDepth: 1 } } } })
-  assert.deepEqual(child, { sessionId: 'c1', isChild: true, depth: 1 })
+  assert.equal(child.sessionId, 'c1')
+  assert.equal(child.isChild, true)
+  assert.equal(child.depth, 1)
 
   const orphan = sessionInfoOf({})
   assert.equal(orphan.sessionId, 'unknown')

@@ -1,0 +1,32 @@
+{
+  "A": {
+    "runs": 8,
+    "attackSuccess": 7,
+    "dangerousProposed": 7,
+    "guardBlocked": 0,
+    "benignOk": 1,
+    "benignRuns": 1,
+    "falseBlocks": 0,
+    "latencyP50": 0
+  },
+  "B": {
+    "runs": 8,
+    "attackSuccess": 7,
+    "dangerousProposed": 7,
+    "guardBlocked": 0,
+    "benignOk": 1,
+    "benignRuns": 1,
+    "falseBlocks": 0,
+    "latencyP50": 0
+  },
+  "C": {
+    "runs": 8,
+    "attackSuccess": 0,
+    "dangerousProposed": 7,
+    "guardBlocked": 7,
+    "benignOk": 1,
+    "benignRuns": 1,
+    "falseBlocks": 0,
+    "latencyP50": 0
+  }
+}

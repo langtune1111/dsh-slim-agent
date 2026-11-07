@@ -6,7 +6,8 @@
     "main":  "index.js",
     "scripts":  {
                     "test":  "node --test",
-                    "estimate":  "node benchmark/token-counter.mjs"
+                    "estimate":  "node benchmark/token-counter.mjs",
+                    "security:eval":  "node research/harness/run-all.mjs"
                 },
     "repository":  {
                        "type":  "git",

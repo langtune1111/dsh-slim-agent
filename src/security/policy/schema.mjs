@@ -56,6 +56,7 @@ export function validatePolicy (raw) {
   if (!isPlainObject(egress)) throw new TypeError('policy.egress must be an object')
   requireStringArray(egress.allowedHosts ?? [], 'egress.allowedHosts')
   requireStringArray(egress.denyShellNetworkVerbs ?? [], 'egress.denyShellNetworkVerbs')
+  requireStringArray(egress.shellInterpreters ?? [], 'egress.shellInterpreters')
   if (egress.taintedPayloadPolicy !== undefined && egress.taintedPayloadPolicy !== 'deny') {
     // 只允许 deny：tainted 外发没有"放行"档位
     throw new TypeError('policy.egress.taintedPayloadPolicy must be "deny"')
@@ -101,6 +102,7 @@ export function validatePolicy (raw) {
     egress: {
       allowedHosts: [...(egress.allowedHosts ?? [])],
       denyShellNetworkVerbs: [...(egress.denyShellNetworkVerbs ?? [])],
+      shellInterpreters: [...(egress.shellInterpreters ?? [])],
       taintedPayloadPolicy: 'deny'
     },
     promptGuard,

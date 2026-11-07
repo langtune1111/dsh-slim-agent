@@ -58,8 +58,8 @@ export default function piSecurityGuard (pi) {
       detail: verdict.detail || ''
     })
     if (verdict.decision === 'deny') {
-      return { block: true, reason: '[security-guard] ' + verdict.reasonCode + (verdict.detail ? ': ' + verdict.detail : '') }
+      // terminate: true 让 pi 在当前批次结束后停下，避免模型无限重试被拒的调用\n      return { block: true, terminate: true, reason: '[security-guard] ' + verdict.reasonCode + (verdict.detail ? ': ' + verdict.detail : '') }
     }
-    return undefined
+    return { block: false }
   })
 }

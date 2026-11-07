@@ -53,7 +53,19 @@
       "Invoke-WebRequest",
       "Invoke-RestMethod"
     ],
-    "taintedPayloadPolicy": "deny"
+    "taintedPayloadPolicy": "deny",
+    "shellInterpreters": [
+      "python",
+      "python3",
+      "node",
+      "perl",
+      "ruby",
+      "php",
+      "deno",
+      "bun",
+      "pwsh",
+      "powershell"
+    ]
   },
   "limits": {
     "defaultMaxToolCalls": 40,

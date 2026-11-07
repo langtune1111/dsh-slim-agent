@@ -42,10 +42,15 @@ export function collectPaths (args) {
     if (typeof v === 'string' && v.trim() !== '') out.push(v.trim())
   }
   if (typeof args.command === 'string') {
+    // 设备文件与伪文件系统不算"越权路径"，否则 `cmd > /dev/null` 会被误判
+    const IGNORED = new Set(['/dev/null', '/dev/stdout', '/dev/stderr', '/dev/stdin'])
     for (const token of args.command.split(/[\s|;&<>()]+/)) {
       if (token === '') continue
-      if (/^[A-Za-z]:[\\/]/.test(token) || token.startsWith('/') || token.startsWith('./') || token.startsWith('../')) {
-        out.push(token.replace(/^["']|["']$/g, ''))
+      const cleaned = token.replace(/^["']|["']$/g, '')
+      if (IGNORED.has(cleaned)) continue
+      if (/^\/dev\/|^\/proc\//.test(cleaned)) continue
+      if (/^[A-Za-z]:[\\/]/.test(cleaned) || cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../')) {
+        out.push(cleaned)
       }
     }
   }
@@ -97,15 +102,45 @@ export function inspectEgress (toolName, toolClass, args, policy) {
     return { egress: Boolean(h), kind: 'fetch', hosts: h ? [h] : [], verbs: [] }
   }
   if (toolClass === 'shell') {
-    const verbs = findNetworkVerbs(args?.command, policy)
-    if (verbs.length === 0) return { egress: false, kind: 'shell', hosts: [], verbs }
+    const command = String(args?.command ?? '')
+    const verbs = findNetworkVerbs(command, policy)
+    // 解释器可以直接开 socket，等同于外发通道：
+    // 只匹配 curl/wget 会被 python3 -c 'urllib...' 绕过（实测踩过一次）。
+    // 执行脚本文件（bash x.sh / sh x.sh / ./x.sh / source x）等同于"内容不可见的外发通道"：
+    // 静态看命令看不到脚本里的 curl，实测被这条绕过过一次。
+    const runsScript = /(^|[\s|;&(])(bash|sh|zsh|source|\.)\s+[^\s|;&]+\.(sh|bash|py|js|mjs|pl|rb|php)(\s|$)/i.test(command)
+      || /(^|[\s|;&(])\.\/[^\s|;&]+/.test(command)
+    if (runsScript) {
+      const hosts = []
+      const urlRe = /https?:\/\/[^\s'"|;<>)]+/gi
+      for (const m of command.matchAll(urlRe)) {
+        const h = hostOf(m[0])
+        if (h && !hosts.includes(h)) hosts.push(h)
+      }
+      return { egress: true, kind: 'shell-script', hosts, verbs: [], interpreters: [] }
+    }
+    const interpreters = (policy?.egress?.shellInterpreters ?? [])
+      .filter((name) => {
+        const re = new RegExp('(^|[\\s|;&(])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)?([\\s|;&)]|$)', 'i')
+        return re.test(command)
+      })
+    if (verbs.length === 0 && interpreters.length === 0) return { egress: false, kind: 'shell', hosts: [], verbs: [] }
+    if (interpreters.length > 0 && verbs.length === 0) {
+      const hosts = []
+      const urlRe = /https?:\/\/[^\s'"|;<>)]+/gi
+      for (const m of command.matchAll(urlRe)) {
+        const h = hostOf(m[0])
+        if (h && !hosts.includes(h)) hosts.push(h)
+      }
+      return { egress: true, kind: 'shell-interpreter', hosts, verbs: [], interpreters }
+    }
     const hosts = []
     const urlRe = /https?:\/\/[^\s'"|;<>)]+/gi
     for (const m of String(args?.command ?? '').matchAll(urlRe)) {
       const h = hostOf(m[0])
       if (h && !hosts.includes(h)) hosts.push(h)
     }
-    return { egress: true, kind: 'shell-network', hosts, verbs }
+    return { egress: true, kind: 'shell-network', hosts, verbs, interpreters }
   }
   return { egress: false, kind: 'none', hosts: [], verbs: [] }
 }

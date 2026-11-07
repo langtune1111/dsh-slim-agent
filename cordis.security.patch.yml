@@ -1,0 +1,10 @@
+# 将 Security Guard 作为 profile 级插件挂载（换预设也绕不过去）。
+# 用法：dsh --profile <p> --patch ./cordis.security.patch.yml
+- insert:
+    - id: agent-security-guard
+      name: dsh-slim-agent/security
+      config:
+        # 审计落盘位置；不填则只保留在内存中（评测器可直接取）
+        # auditFile: ~/.dsh/security-audit.jsonl
+        # 启动时预置授权（演示用；正式环境由宿主/评测器在任务开始时授予）
+        grants: []

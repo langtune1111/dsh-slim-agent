@@ -18,12 +18,17 @@
              },
     "exports":  {
                     ".":  "./index.js",
-                    "./package.json":  "./package.json"
+                    "./package.json":  "./package.json",
+                    "./security":  "./src/security/index.mjs"
                 },
     "files":  [
                   "index.js",
                   "preset-core.mjs",
                   "cordis.patch.yml",
+                  "cordis.security.patch.yml",
+                  "src",
+                  "docs",
+                  "research",
                   "benchmark",
                   "README.md",
                   "LICENSE"

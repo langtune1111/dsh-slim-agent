@@ -14,9 +14,11 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 import { validatePolicy } from './policy/schema.mjs'
-import { evaluate, REASON } from './policy/engine.mjs'
+import { evaluate, classifyTool, collectPaths, REASON } from './policy/engine.mjs'
 import { createGrantStore } from './capability/store.mjs'
 import { createLedger, digestValue } from './audit/ledger.mjs'
+import { createProvenanceLedger, buildUntrustedLabel } from './provenance/ledger.mjs'
+import { createTaintStore } from './data-flow/taint.mjs'
 
 export const name = 'dsh-agent-security-guard'
 export const inject = []
@@ -60,6 +62,46 @@ export function createGuard (config = {}) {
     try { grants.grant(spec) } catch { /* 单条坏授权忽略，其余照常 */ }
   }
 
+  const provenance = createProvenanceLedger()
+  const taint = createTaintStore({ sensitive: policy?.sensitive ?? {} })
+
+  /** 从工具结果里取出纯文本（content blocks）。 */
+  function textOfResult (result) {
+    const blocks = result?.content
+    if (!Array.isArray(blocks)) return ''
+    return blocks
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('\n')
+  }
+
+  /**
+   * 观察一次工具结果：登记来源、抽取污点。
+   * 这是"内容进入上下文"的唯一入口，provenance 与 data-flow 都在这里汇合。
+   */
+  function observeResult ({ sessionId, callId, toolName, args, result }) {
+    const toolClass = policy ? classifyTool(toolName, policy) : null
+    const text = textOfResult(result)
+    const entry = provenance.record({
+      sessionId,
+      callId,
+      tool: toolName,
+      toolClass,
+      digest: digestValue(text)
+    })
+    let taintInfo = { tainted: false, added: 0 }
+    if (toolClass === 'local-read' || toolClass === 'external-read' || toolClass === 'delegate') {
+      taintInfo = taint.observe({
+        sessionId,
+        callId,
+        tool: toolName,
+        text,
+        paths: collectPaths(args)
+      })
+    }
+    return { entry, taint: taintInfo, text }
+  }
+
   function evaluateCall (request) {
     const started = Date.now()
     const sessionId = request?.sessionId ?? 'unknown'
@@ -77,11 +119,11 @@ export function createGuard (config = {}) {
     }
 
     const grant = grants.get(sessionId)
-    let taint = null
+    let taintView = null
     try {
-      taint = typeof config.taintProvider === 'function' ? config.taintProvider(sessionId) : null
+      taintView = typeof config.taintProvider === 'function' ? config.taintProvider(sessionId) : taint.forSession(sessionId)
     } catch {
-      taint = null
+      taintView = null
     }
 
     const result = evaluate(
@@ -93,7 +135,7 @@ export function createGuard (config = {}) {
         isChild: request?.isChild === true,
         depth: request?.depth
       },
-      { policy, grant, taint }
+      { policy, grant, taint: taintView }
     )
 
     if (result.decision === 'allow') grants.consume(sessionId)
@@ -118,11 +160,16 @@ export function createGuard (config = {}) {
     initError,
     grants,
     ledger,
+    provenance,
+    taint,
     evaluateCall,
+    observeResult,
     grantTask: (spec) => grants.grant(spec),
     dispose () {
       grants.clear()
       ledger.clear()
+      provenance.clear()
+      taint.clear()
     }
   }
 }
@@ -170,6 +217,32 @@ export function apply (ctx, config = {}) {
     }
     return next()
   }, { prepend: true }))
+
+  // 观察工具结果：登记来源 + 抽取污点；外部内容的来源标签可选注入下一轮
+  if (config.observeResults !== false) {
+    disposers.push(ctx.on('tools/post-execute', async (exec, result, next) => {
+      const decided = await next()
+      try {
+        const info = sessionInfoOf(exec)
+        const observed = guard.observeResult({
+          sessionId: info.sessionId,
+          callId: exec?.callId,
+          toolName: exec?.name ?? exec?.tool?.name,
+          args: exec?.arguments ?? exec?.args ?? {},
+          result
+        })
+        const label = config.labelExternalContent !== false && observed.entry.untrusted && observed.text !== ''
+        if (label) {
+          const message = { role: 'user', content: [{ type: 'text', text: buildUntrustedLabel(observed.entry) }] }
+          const existing = Array.isArray(decided?.additionalContexts) ? decided.additionalContexts : []
+          return { ...(decided ?? { kind: 'accept' }), additionalContexts: [...existing, message] }
+        }
+      } catch (error) {
+        try { ctx?.logger?.warn?.('[security-guard] 结果观察失败（不影响主流程）: ' + String(error)) } catch {}
+      }
+      return decided
+    }, { prepend: true }))
+  }
 
   disposers.push(ctx.on('session/disposed', (session) => {
     try {

@@ -19,6 +19,7 @@ import { createGrantStore } from './capability/store.mjs'
 import { createLedger, digestValue } from './audit/ledger.mjs'
 import { createProvenanceLedger, buildUntrustedLabel } from './provenance/ledger.mjs'
 import { createTaintStore } from './data-flow/taint.mjs'
+import { scanContent, shouldEscalate } from './prompt-guard.mjs'
 
 export const name = 'dsh-agent-security-guard'
 export const inject = []
@@ -63,6 +64,15 @@ export function createGuard (config = {}) {
   }
 
   const provenance = createProvenanceLedger()
+
+  /** 会话级安全标记（例如 injection-suspected）。 */
+  const sessionFlags = new Map()
+  const flagsOf = (sessionId) => {
+    const key = String(sessionId ?? 'unknown')
+    let f = sessionFlags.get(key)
+    if (!f) { f = new Set(); sessionFlags.set(key, f) }
+    return f
+  }
   const taint = createTaintStore({ sensitive: policy?.sensitive ?? {} })
 
   /** 从工具结果里取出纯文本（content blocks）。 */
@@ -89,6 +99,14 @@ export function createGuard (config = {}) {
       toolClass,
       digest: digestValue(text)
     })
+    // 提示词防护：只扫"不可信来源"的文本；命中即给会话打标，后续外发升级为拒绝
+    let promptInfo = { suspected: false, score: 0, hits: [], threshold: 0 }
+    if (entry.untrusted && text !== '') {
+      promptInfo = scanContent(text, policy)
+      if (promptInfo.suspected) {
+        flagsOf(sessionId).add('injection-suspected')
+      }
+    }
     let taintInfo = { tainted: false, added: 0 }
     if (toolClass === 'local-read' || toolClass === 'external-read' || toolClass === 'delegate') {
       taintInfo = taint.observe({
@@ -99,7 +117,7 @@ export function createGuard (config = {}) {
         paths: collectPaths(args)
       })
     }
-    return { entry, taint: taintInfo, text }
+    return { entry, taint: taintInfo, prompt: promptInfo, text }
   }
 
   function evaluateCall (request) {
@@ -149,7 +167,7 @@ export function createGuard (config = {}) {
         isChild: request?.isChild === true,
         depth: request?.depth
       },
-      { policy, grant, taint: taintView }
+      { policy, grant, taint: taintView, escalate: shouldEscalate(policy, flagsOf(sessionId)) }
     )
 
     if (result.decision === 'allow') grants.consume(sessionId)
@@ -212,6 +230,7 @@ export function createGuard (config = {}) {
     provenance,
     taint,
     taskProfiles,
+    flags: sessionFlags,
     evaluateCall,
     observeResult,
     startTask,
@@ -221,6 +240,7 @@ export function createGuard (config = {}) {
       grants.clear()
       ledger.clear()
       provenance.clear()
+      sessionFlags.clear()
       taint.clear()
     }
   }
@@ -345,6 +365,7 @@ export function apply (ctx, config = {}) {
       if (id) {
         guard.grants.revoke(String(id))
         guard.taint.clear(String(id))
+        guard.flags.delete(String(id))
       }
     } catch {}
   }))

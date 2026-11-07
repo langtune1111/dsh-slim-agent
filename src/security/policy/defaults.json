@@ -6,28 +6,63 @@
     "missingGrant": "deny"
   },
   "tools": {
-    "read": { "class": "local-read" },
-    "write": { "class": "local-write" },
-    "edit": { "class": "local-write" },
-    "bash": { "class": "shell" },
-    "web_search": { "class": "external-read" },
-    "web_fetch": { "class": "external-read" },
-    "subagent": { "class": "delegate" },
-    "final_answer": { "class": "control" }
+    "read": {
+      "class": "local-read"
+    },
+    "write": {
+      "class": "local-write"
+    },
+    "edit": {
+      "class": "local-write"
+    },
+    "bash": {
+      "class": "shell"
+    },
+    "web_search": {
+      "class": "external-read"
+    },
+    "web_fetch": {
+      "class": "external-read"
+    },
+    "subagent": {
+      "class": "delegate"
+    },
+    "final_answer": {
+      "class": "control"
+    }
   },
   "sensitive": {
     "paths": [],
-    "markers": ["SIM_SECRET_"],
+    "markers": [
+      "SIM_SECRET_"
+    ],
     "contentRegex": []
   },
   "egress": {
     "allowedHosts": [],
-    "denyShellNetworkVerbs": ["curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "telnet", "Invoke-WebRequest", "Invoke-RestMethod"],
+    "denyShellNetworkVerbs": [
+      "curl",
+      "wget",
+      "nc",
+      "ncat",
+      "netcat",
+      "ssh",
+      "scp",
+      "sftp",
+      "telnet",
+      "Invoke-WebRequest",
+      "Invoke-RestMethod"
+    ],
     "taintedPayloadPolicy": "deny"
   },
   "limits": {
     "defaultMaxToolCalls": 40,
     "defaultTtlSeconds": 900,
     "childMaxDepth": 1
+  },
+  "promptGuard": {
+    "enabled": true,
+    "threshold": 4,
+    "escalate": true
   }
 }

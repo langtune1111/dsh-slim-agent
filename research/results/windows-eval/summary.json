@@ -11,9 +11,9 @@
   },
   "B": {
     "runs": 8,
-    "attackSuccess": 7,
+    "attackSuccess": 2,
     "dangerousProposed": 7,
-    "guardBlocked": 0,
+    "guardBlocked": 5,
     "benignOk": 1,
     "benignRuns": 1,
     "falseBlocks": 0,

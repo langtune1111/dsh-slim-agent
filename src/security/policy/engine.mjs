@@ -19,6 +19,7 @@ export const REASON = Object.freeze({
   PATH_DENIED: 'PATH_DENIED',
   EGRESS_DENIED: 'EGRESS_DENIED',
   TAINTED_EGRESS: 'TAINTED_EGRESS',
+  INJECTION_SUSPECTED: 'INJECTION_SUSPECTED',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 })
 
@@ -217,6 +218,10 @@ export function evaluate (request, state) {
     // 9. 外发方向
     const egress = inspectEgress(toolName, toolClass, args, policy)
     if (egress.egress) {
+      // 9.0 提示词防护升级：会话里发现过注入特征 → 外发一律拒绝
+      if (state?.escalate === true) {
+        return deny(REASON.INJECTION_SUSPECTED, 'untrusted content flagged as prompt injection; egress locked')
+      }
       const network = grant.network ?? 'none'
       if (network === 'none') return deny(REASON.EGRESS_DENIED, 'network capability is none (' + egress.kind + ')')
       if (network === 'allowlist') {

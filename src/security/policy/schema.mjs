@@ -68,6 +68,27 @@ export function validatePolicy (raw) {
     if (v !== undefined && (!Number.isFinite(v) || v < 0)) throw new TypeError('policy.limits.' + key + ' must be a non-negative number')
   }
 
+  // 提示词防护（可选）
+  let promptGuard
+  if (raw.promptGuard !== undefined) {
+    const pg = raw.promptGuard
+    if (!isPlainObject(pg)) throw new TypeError('policy.promptGuard must be an object')
+    const patterns = pg.patterns
+    if (patterns !== undefined) {
+      if (!Array.isArray(patterns)) throw new TypeError('policy.promptGuard.patterns must be an array')
+      for (const item of patterns) {
+        if (!isPlainObject(item)) throw new TypeError('policy.promptGuard.patterns[] must be objects')
+        if (item.re === undefined) throw new TypeError('policy.promptGuard.patterns[].re is required')
+      }
+    }
+    promptGuard = {
+      enabled: pg.enabled !== false,
+      threshold: Number.isFinite(pg.threshold) ? pg.threshold : 4,
+      escalate: pg.escalate !== false,
+      ...(patterns ? { patterns } : {})
+    }
+  }
+
   return {
     version: 1,
     defaults: { decision: 'deny', unknownTool: 'deny', missingGrant: 'deny' },
@@ -82,6 +103,7 @@ export function validatePolicy (raw) {
       denyShellNetworkVerbs: [...(egress.denyShellNetworkVerbs ?? [])],
       taintedPayloadPolicy: 'deny'
     },
+    promptGuard,
     limits: {
       defaultMaxToolCalls: limits.defaultMaxToolCalls ?? 40,
       defaultTtlSeconds: limits.defaultTtlSeconds ?? 900,

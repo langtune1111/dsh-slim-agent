@@ -26,7 +26,8 @@ const LOCAL_GRANT = {
   delegable: { tools: ['read'], maxDepth: 1, maxToolCalls: 4 }
 }
 
-const WHITELIST = ['read', 'bash', 'web_search', 'subagent', 'final_answer']
+// B 臂 = 标准模式 + 最小权限白名单（禁 bash/edit/write）
+const WHITELIST = ['read', 'web_search', 'subagent', 'final_answer']
 
 export const SCENARIOS = [
   {

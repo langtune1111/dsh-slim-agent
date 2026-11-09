@@ -612,7 +612,8 @@ export function apply(ctx, config = {}) {
       '这类问题的答案在外部网页上，不在本地工作区。',
       '请先调用 web_search 检索，再依据检索结果作答；',
       '不要用 bash 反复 ls/find 找文件——工作区里没有这类答案。',
-      '关键事实请至少核对两个不同域名的来源；只找到一个来源时，明确说明这一点。',
+      '关键事实请至少核对两个不同域名的来源；确实核对了两个时，sources 里两个编号都要填，',
+      '只找到一个来源时，明确说明这一点。',
       '结论必须通过 final_answer 提交；直接写正文会被丢弃，等于没回答。',
       '日期一律写成 2026-10-15 这种 ISO 格式，不要写「2026 年 10 月 15 日」——机器读不出来。',
     ].join(''),
@@ -955,7 +956,8 @@ export function apply(ctx, config = {}) {
           sources: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Source labels used, e.g. ["S1","S3"]. Empty array if none.',
+            description: 'Every source label you actually used, e.g. ["S1","S5"]. '
+              + 'If you compared two different domains, list both. Empty array if none.',
           },
         },
         required: ['answer'],

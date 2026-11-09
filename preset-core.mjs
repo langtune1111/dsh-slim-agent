@@ -1064,8 +1064,11 @@ export function apply(ctx, config = {}) {
       const key = bucketOf(context?.agent?.session ?? context?.agent)
       const userText = lastUserText.get(key) || ''
       const timeSensitive = /最新|当前|现在|目前|今天|latest|current|now|today|版本号|版本|version|release/i.test(userText)
-      const alreadySearched = (searchBudget.get(key) ?? 0) > 0
-      if (timeSensitive && opts.intentRouter !== false && !alreadySearched) {
+      // 注意：这里**不能**因为"已经搜过"就撤掉路由段。
+      // 实测（2026-11-09）：加上 alreadySearched 守卫后，模型第二步就看不到
+      // "答案在网页上"的说明，立刻退回 bash 翻空目录，全量 PASS 从 14 掉到 9。
+      // 这条指令必须每一步都在。
+      if (timeSensitive && opts.intentRouter !== false) {
         const sections0 = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
         if (!sections0.some((sec) => sec?.name === ROUTER_SECTION.name)) sections0.push(ROUTER_SECTION)
         // contexts 会作为 user-role 快照注入，比 system 段更靠近轮次——实测系统段里

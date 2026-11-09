@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-09 | `0.6.3-beta.2` | slug 修正 + 空页面不入来源表；实测 2/6，失败点是「不写引用」 | 6 次（单跑） | ✅ 已完成 | [报告](history/2026-11-09__v0.6.3-beta.2__slug-fix-verify/REPORT.md) · [数据](history/2026-11-09__v0.6.3-beta.2__slug-fix-verify/data/) |
 | 2026-11-09 | `0.6.3-beta.1` | 补抓 endoflife.date（B 类首次 2/3 通过） | 3 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.3-beta.1__version-feed/REPORT.md) · [数据](history/2026-11-09__v0.6.3-beta.1__version-feed/data/) |
 | 2026-11-09 | `0.6.2-beta.1` | 成句提示（版本+代号拼接），A1 3/3 | 9 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.2-beta.1__quotable-line/REPORT.md) · [数据](history/2026-11-09__v0.6.2-beta.1__quotable-line/data/) |
 | 2026-11-09 | `0.6.1-beta.1` | 路由段每步注入（撤销导致 14→9 的守卫） | 42 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.1-beta.1__router-regression/REPORT.md) · [数据](history/2026-11-09__v0.6.1-beta.1__router-regression/data/) |

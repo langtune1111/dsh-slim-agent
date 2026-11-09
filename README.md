@@ -35,7 +35,7 @@
 > - 🖼 **安装验证（Windows + Debian 截图）** → [docs/install-verify](docs/install-verify/README.md)
 > - 🧾 **下一步待办（含证据）** → [NEXT.md](NEXT.md)
 > - 🧭 **当前状态速览** → [STATUS.md](STATUS.md)
-> - 📊 **最新 Benchmark 报告** → [B 类首次通过：补抓 endoflife.date 作为第二来源（2026-11-09）](benchmark/history/2026-11-09__v0.6.3-beta.1__version-feed/REPORT.md)
+> - 📊 **最新 Benchmark 报告** → [0.6.3-beta.2 实机验证：事实对了，引用没跟上（2026-11-09）](benchmark/history/2026-11-09__v0.6.3-beta.2__slug-fix-verify/REPORT.md)
 
 
 在短上下文（4K / 8K）下运行全功能 Agent 时，数十个工具定义与长篇网页正文极易占满上下文窗口，并导致小模型产生工具选择幻觉。本插件采用“窄主代理 + 宽子代理”的分工模型：

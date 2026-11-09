@@ -834,6 +834,11 @@ export function apply(ctx, config = {}) {
         if (/^https?:\/\//.test(target)) {
           const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
           if (ex) {
+            // [S0] 是"直接抓到的正文"。模型经常在正文里引 [S0]，但来源表里没有它，
+            // 展开时就被丢掉——于是引用域名空着。这里把它也登记进来。
+            if (!refTable.some((r) => r.tag === 'S0')) {
+              refTable.push({ tag: 'S0', url: target, title: '抓取正文 ' + classifySource(target) })
+            }
             if (ex.versions.length) lines.push('[S0] 页面实测版本号（来自 ' + classifySource(target) + '）：' + ex.versions.join(' / '))
             if (Array.isArray(ex.dates) && ex.dates.length) lines.push('[S0] 页面日期（' + classifySource(target) + '）：' + ex.dates.slice(0, 5).join(' / '))
             ex.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 原文片段：' + c))
@@ -971,11 +976,20 @@ export function apply(ctx, config = {}) {
         const table = lastSources.get(budgetKey(exec)) || []
         const pick = (label) => {
           const m = String(label).match(/S(\d+)/i)
-          if (m) return table[Number(m[1]) - 1]
+          if (m) {
+            const tag = 'S' + m[1]
+            const hit = table.find((r) => String(r.tag).toUpperCase() === tag)
+            if (hit) return hit
+            return table[Number(m[1]) - 1]
+          }
           if (/^https?:\/\//i.test(String(label))) return { tag: label, url: String(label), title: '' }
           return null
         }
-        let expanded = sources.map(pick).filter(Boolean)
+        // 模型经常在正文里写 [S0][S5]，但 sources 数组只填最后一个。
+        // 引用要看"它到底提了哪些编号"，所以正文里出现的编号一并算进来。
+        const cited = Array.from(String(answer).matchAll(/\[S(\d+)\]/gi)).map((m) => 'S' + m[1])
+        const wanted = [...cited, ...sources].filter((v, i, a) => a.findIndex((x) => String(x).toLowerCase() === String(v).toLowerCase()) === i)
+        let expanded = wanted.map(pick).filter(Boolean)
         if (expanded.length === 0) expanded = table.slice(0, 2)
         const citeText = expanded.length
           ? '来源: ' + expanded.map((r) => (r.tag && /^S\d+$/i.test(r.tag) ? '[' + r.tag + '] ' : '') + r.url).join(' | ')

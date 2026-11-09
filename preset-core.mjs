@@ -287,6 +287,42 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
   }
 }
 
+/**
+ * 常见产品 → 第三方版本跟踪页 slug。
+ *
+ * 场景：搜索后端（Bing-CN）对不同查询返回同一批通用结果，永远给不出
+ * `endoflife.date` 这类版本跟踪站。但直接抓它是通的，所以这里在**已知产品**上
+ * 主动补一次抓取，并把 URL 登记进来源表——多源核验题（B 类）靠它才有第二个域名。
+ */
+const VERSION_SOURCE_SLUGS = {
+  nodejs: ['nodejs', 'node', 'node.js'],
+  python: ['python'],
+  rust: ['rust'],
+  go: ['go', 'golang'],
+  java: ['java', 'jdk'],
+  docker: ['docker', 'docker-engine'],
+  kubernetes: ['kubernetes', 'k8s'],
+  postgresql: ['postgresql', 'postgres'],
+  mysql: ['mysql'],
+  django: ['django'],
+  react: ['react'],
+  angular: ['angular'],
+  vue: ['vue'],
+  php: ['php'],
+  ruby: ['ruby'],
+  laravel: ['laravel'],
+}
+
+function guessVersionSlug(query) {
+  const q = String(query || '').toLowerCase()
+  for (const [slug, aliases] of Object.entries(VERSION_SOURCE_SLUGS)) {
+    for (const alias of aliases) {
+      if (new RegExp('(^|[^a-z0-9])' + alias.replace(/[.]/g, '\\.') + '([^a-z0-9]|$)', 'i').test(q)) return slug
+    }
+  }
+  return null
+}
+
 /* ───────────────────────────── 搜索 ───────────────────────────── */
 
 const stripTags = (s) =>
@@ -491,6 +527,8 @@ export function apply(ctx, config = {}) {
     fetchTimeoutMs: Number(config.fetchTimeoutMs) || 8000,
     fetchMaxChars: Number(config.fetchMaxChars) || 1200,
     fetchFollowLinks: config.fetchFollowLinks !== false,
+    // 已知产品额外抓一次 endoflife.date（给多源核验题补第二个来源）
+    versionSourceFeeds: config.versionSourceFeeds !== false,
     // 意图路由：检测到时新词就在系统提示里要求先检索（默认开）
     intentRouter: config.intentRouter !== false,
     // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
@@ -761,6 +799,27 @@ export function apply(ctx, config = {}) {
         refTable.push({ tag, url, title })
         lines.push('[' + tag + '] ' + classifySource(url) + ' ' + title + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要') + '  <' + url + '>')
       }
+      // 已知产品：额外抓一次 endoflife.date，补上"第二个来源"
+      if (opts.versionSourceFeeds !== false) {
+        const slug = guessVersionSlug(query)
+        if (slug) {
+          const feedUrl = 'https://endoflife.date/' + slug
+          const feed = await fetchExcerpt(feedUrl, { timeoutMs: opts.fetchTimeoutMs, maxChars: 600 })
+          if (feed) {
+            const tag = 'S' + (refTable.length + 1)
+            refTable.push({ tag, url: feedUrl, title: 'endoflife.date/' + slug })
+            refs.push('[' + tag + '] ' + feedUrl)
+            const vers = (feed.versions || []).slice(0, 3)
+            if (vers.length) {
+              lines.push('[' + tag + '] 版本跟踪页（endoflife.date）：最新版本 ' + vers.join(' / '))
+            }
+            if (Array.isArray(feed.dates) && feed.dates.length) {
+              lines.push('[' + tag + '] 版本跟踪页日期：' + feed.dates.slice(0, 3).join(' / '))
+            }
+          }
+        }
+      }
+
       // 抓首条正文做确定性抽取（不依赖模型理解摘要）
       if (opts.fetchTopResult) {
         const pick = items.find((it) => /nodejs\.org|rust-lang\.org|python\.org|go\.dev|github\.com|wikipedia\.org/.test(String(it.url || ''))) || items[0]

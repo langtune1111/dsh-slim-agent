@@ -149,10 +149,26 @@ export function isFetchableUrl(rawUrl) {
   return true
 }
 
+/* 抓取结果缓存：同一次会话里模型常常对同一个页面搜两三次，
+ * 每次都重新抓（最坏 3 跳、每跳 8 秒）纯属浪费。按 URL 缓存 5 分钟。 */
+const FETCH_CACHE = new Map()
+const FETCH_CACHE_TTL_MS = 5 * 60 * 1000
+const FETCH_CACHE_MAX = 32
+
+export function clearFetchCache() {
+  FETCH_CACHE.clear()
+}
+
 export async function fetchExcerpt(rawUrl, opts = {}) {
   const timeoutMs = Number(opts.timeoutMs) || 8000
   const maxChars = Number(opts.maxChars) || 1500
   if (!isFetchableUrl(rawUrl)) return null
+  const cacheKey = String(rawUrl)
+  const hit = FETCH_CACHE.get(cacheKey)
+  if (hit && Date.now() - hit.at < FETCH_CACHE_TTL_MS) {
+    // 命中缓存时把 hop 计数带回去，避免外层再顺链
+    return { ...hit.value, cached: true }
+  }
   try {
     const res = await fetch(rawUrl, {
       signal: AbortSignal.timeout(timeoutMs),
@@ -258,7 +274,14 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
         }
       } catch {}
     }
-    return { text: String(text).slice(0, maxChars), versions, dates, contexts: contexts.map((c) => c.trim()), links: linkHits, tables, base: rawUrl }
+    const result = { text: String(text).slice(0, maxChars), versions, dates, contexts: contexts.map((c) => c.trim()), links: linkHits, tables, base: rawUrl }
+    try {
+      FETCH_CACHE.set(cacheKey, { at: Date.now(), value: result })
+      while (FETCH_CACHE.size > FETCH_CACHE_MAX) {
+        FETCH_CACHE.delete(FETCH_CACHE.keys().next().value)
+      }
+    } catch {}
+    return result
   } catch {
     return null
   }

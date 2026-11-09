@@ -94,3 +94,19 @@ error: profile "desktop" is managed exclusively by the Electron application
 5. **重启桌面应用**后生效
 
 回滚：备份在 `G:\temp\desktop-profile-backup-<时间戳>\`（package.json / cordis.patch.yml / pnpm-lock.yaml）。
+---
+
+## 补充：干净 profile 上的安装边界（2026-11-09）
+
+在一个**全空**的 profile 里直接 `dsh plugin --profile X add dsh-slim-agent-0.6.0-beta.1.tgz`，
+包会装好、`cordis.patch.yml` 的声明也写进去，但启动时该行显示：
+
+```
+preset-local-slim-agent (@deepseek-ai/dsh-agent-preset): pending (waiting for service: agentPresets)
+```
+
+原因是全空 profile 只有 `@deepseek-ai/dsh-base`，**没有提供 `agentPresets` 服务的 app 层**。
+实际使用中不需要额外操作——`web` / `headless` / `desktop` 这些真实 profile 都自带该服务
+（它们包含 `@deepseek-ai/dsh-web-app` 等），装进去即可用。
+
+结论：**装进现成的 profile，不要新建裸 profile**。

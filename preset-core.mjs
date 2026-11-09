@@ -166,6 +166,20 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
     if (len > 2_000_000) return null
     let raw = await res.text()
     const linkHits = []
+    // 处理 meta refresh 与极短重定向页（例：blog.rust-lang.org/releases/latest 只写
+    // "Click here to be redirected"，真正内容在下一跳）
+    try {
+      const refresh = raw.match(/<meta[^>]+http-equiv=["']refresh["'][^>]*content=["'][^"']*url=([^"'>\s]+)/i)
+      const hopUrl = refresh ? refresh[1] : null
+      if (hopUrl && Number(opts.hop || 0) < 2) {
+        let abs = null
+        try { abs = new URL(hopUrl, rawUrl).toString() } catch {}
+        if (abs && abs !== rawUrl && isFetchableUrl(abs)) {
+          const next = await fetchExcerpt(abs, { ...opts, hop: Number(opts.hop || 0) + 1 })
+          if (next) return next
+        }
+      }
+    } catch {}
     try {
       const linkRe = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{0,80}?)<\/a>/gi
       let lm
@@ -206,13 +220,45 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
     } catch {}
 
     const versions = Array.from(new Set(String(text).match(/v?\d+\.\d+\.\d+/g) || [])).slice(0, 6)
+    const dates = []
+    try {
+      const pats = [
+        /\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/g,
+        /(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g,
+        /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(20\d{2})\b/gi,
+      ]
+      const MON = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 }
+      for (const re of pats) {
+        let dm
+        while ((dm = re.exec(text)) !== null && dates.length < 8) {
+          let y, m, d
+          if (/^[A-Za-z]/.test(dm[1])) { y = dm[3]; m = MON[dm[1].slice(0,3).toLowerCase()]; d = dm[2] }
+          else { y = dm[1]; m = dm[2]; d = dm[3] }
+          const mm = String(Number(m)).padStart(2, '0')
+          const dd = String(Number(d)).padStart(2, '0')
+          const iso = y + '-' + mm + '-' + dd
+          if (!dates.includes(iso)) dates.push(iso)
+        }
+      }
+    } catch {}
+
     const contexts = []
     const re = /(latest\s*(lts|stable)|最新.*?(长期支持|lts)|lts)/gi
     let m
     while ((m = re.exec(text)) !== null && contexts.length < 3) {
       contexts.push(text.slice(Math.max(0, m.index - 60), Math.min(text.length, m.index + 90)))
     }
-    return { text: String(text).slice(0, maxChars), versions, contexts: contexts.map((c) => c.trim()), links: linkHits, tables, base: rawUrl }
+    // 极短正文 + 只有一个链接：多半是重定向占位页
+    if (String(text).length < 400 && linkHits.length === 1 && Number(opts.hop || 0) < 2) {
+      try {
+        const only = new URL(linkHits[0].href, rawUrl).toString()
+        if (isFetchableUrl(only) && only !== rawUrl) {
+          const next = await fetchExcerpt(only, { ...opts, hop: Number(opts.hop || 0) + 1 })
+          if (next) return next
+        }
+      } catch {}
+    }
+    return { text: String(text).slice(0, maxChars), versions, dates, contexts: contexts.map((c) => c.trim()), links: linkHits, tables, base: rawUrl }
   } catch {
     return null
   }
@@ -678,6 +724,7 @@ export function apply(ctx, config = {}) {
           const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
           if (ex) {
             if (ex.versions.length) lines.push('[S0] 页面实测版本号（来自 ' + classifySource(target) + '）：' + ex.versions.join(' / '))
+            if (Array.isArray(ex.dates) && ex.dates.length) lines.push('[S0] 页面日期（' + classifySource(target) + '）：' + ex.dates.slice(0, 5).join(' / '))
             ex.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 原文片段：' + c))
             // 首页/下载页常常没有"代号/发布日期"。实测路径：
             //   nodejs.org -> /download -> /about/previous-releases（含 v26 Lithium）
@@ -707,6 +754,7 @@ export function apply(ctx, config = {}) {
                 const ex2 = await fetchExcerpt(next.abs, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
                 if (!ex2) break
                 if (ex2.versions.length) lines.push('[S0] 顺链页面版本号（' + next.abs + '）：' + ex2.versions.join(' / '))
+                if (Array.isArray(ex2.dates) && ex2.dates.length) lines.push('[S0] 顺链页面日期（' + next.abs + '）：' + ex2.dates.slice(0, 5).join(' / '))
                 if (Array.isArray(ex2.tables)) {
                   for (const rows of ex2.tables.slice(0, 1)) {
                     const head = rows[0]

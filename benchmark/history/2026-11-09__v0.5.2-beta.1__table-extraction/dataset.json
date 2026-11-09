@@ -109,10 +109,10 @@
       "task_id": "B3",
       "category": "B_crosssource",
       "user_prompt": "Rust 当前最新的稳定版本号是多少？注意有的资料会列出已过期的旧版本，请说明你依据的是哪一个并给出发布日期。",
-      "expected_answer": "1.99.1 / 2026-10-01",
+      "expected_answer": "1.99.1（2026-10-15 发布，官方博客）",
       "required_facts": [
         "1\\.99\\.1",
-        "2026-10-01"
+        "2026-10-15"
       ],
       "required_sources": [
         "rust-lang.org",
@@ -127,7 +127,8 @@
       },
       "benchmark_date": "2026-11-03",
       "source_snapshot_date": "2026-11-03",
-      "oversize": false
+      "oversize": false,
+      "correction": "原 required_facts 要求 2026-10-01，与 rust-lang.org 官方发布公告（Oct. 15, 2026）不符，已按官方页面更正"
     },
     {
       "task_id": "C1",

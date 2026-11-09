@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-09 | `0.6.0-alpha.1` | 意图路由后的全量基线（PASS 9→14） | 36 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.0-alpha.1__router-full-suite/REPORT.md) · [数据](history/2026-11-09__v0.6.0-alpha.1__router-full-suite/data/) |
 | 2026-11-09 | `0.5.5-beta.1` | 意图路由（时效性问题强制先检索） | 26 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.5.5-beta.1__intent-router/REPORT.md) · [数据](history/2026-11-09__v0.5.5-beta.1__intent-router/data/) |
 | 2026-11-09 | `0.5.4-beta.1` | 当日收尾基线（PASS 9/36、0 超时、40s） | 36 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.5.4-beta.1__final-baseline/REPORT.md) · [数据](history/2026-11-09__v0.5.4-beta.1__final-baseline/data/) |
 | 2026-11-09 | `0.5.4-beta.1` | 抓取缓存（平均耗时 102s → 35s） | 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.5.4-beta.1__fetch-cache/REPORT.md) · [数据](history/2026-11-09__v0.5.4-beta.1__fetch-cache/data/) |

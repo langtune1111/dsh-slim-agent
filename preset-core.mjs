@@ -827,6 +827,8 @@ export function apply(ctx, config = {}) {
                           const code = cells[1].replace(/^-+$/, '').trim()
                           if (code) {
                             lines.push('[S0] 版本与代号（确定性配对）：' + fullVer + ' → 代号 ' + code)
+                            // 再给一句可直接落笔的成句：小模型经常只抄版本、漏掉代号
+                            lines.push('[S0] 可直接引用：最新 LTS 版本为 ' + fullVer + '，代号 ' + code + '。')
                             joined = true
                           }
                           break

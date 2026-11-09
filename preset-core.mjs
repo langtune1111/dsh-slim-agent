@@ -184,6 +184,27 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
         .replace(/<style[\s\S]*?<\/style>/gi, ' ')
         .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' '),
     )
+    // 表格往往是唯一把「版本 / 代号 / 日期 / 状态」并排放在一起的地方
+    // （例：nodejs.org/about/previous-releases 的 v26 | Lithium | 2026年5月05日 | LTS）
+    const tables = []
+    try {
+      const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi
+      let tm
+      while ((tm = tableRe.exec(raw)) !== null && tables.length < 2) {
+        const rows = []
+        const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+        let rm
+        while ((rm = rowRe.exec(tm[1])) !== null && rows.length < 14) {
+          const cells = []
+          const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi
+          let cm
+          while ((cm = cellRe.exec(rm[1])) !== null && cells.length < 6) cells.push(stripTags(cm[1]).slice(0, 40))
+          if (cells.length >= 2) rows.push(cells.join(' | '))
+        }
+        if (rows.length >= 2) tables.push(rows)
+      }
+    } catch {}
+
     const versions = Array.from(new Set(String(text).match(/v?\d+\.\d+\.\d+/g) || [])).slice(0, 6)
     const contexts = []
     const re = /(latest\s*(lts|stable)|最新.*?(长期支持|lts)|lts)/gi
@@ -191,7 +212,7 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
     while ((m = re.exec(text)) !== null && contexts.length < 3) {
       contexts.push(text.slice(Math.max(0, m.index - 60), Math.min(text.length, m.index + 90)))
     }
-    return { text: String(text).slice(0, maxChars), versions, contexts: contexts.map((c) => c.trim()), links: linkHits, base: rawUrl }
+    return { text: String(text).slice(0, maxChars), versions, contexts: contexts.map((c) => c.trim()), links: linkHits, tables, base: rawUrl }
   } catch {
     return null
   }
@@ -408,7 +429,8 @@ export function apply(ctx, config = {}) {
     // 收敛时保留 final_answer 作为唯一出口：实测工具面为空时模型会把调用写成纯文本，
     // 留一个"提交工具"反而能让它把结论说完整。
     convergeFinalOnly: config.convergeFinalOnly !== false,
-    hardCap: Number(config.hardCap) || 8,
+    // 实测：8 次太松，模型会在第 5-7 次调用时才收尾，容易漏掉 final_answer；4 次在 A/D 两类上都更好。
+    hardCap: Number(config.hardCap) || 4,
     bash: config.bash || 'sandbox',
     // 消融开关（默认值与正式行为一致；仅供 benchmark 逐项对照使用）
     enableSearch: config.enableSearch !== false,
@@ -685,6 +707,16 @@ export function apply(ctx, config = {}) {
                 const ex2 = await fetchExcerpt(next.abs, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
                 if (!ex2) break
                 if (ex2.versions.length) lines.push('[S0] 顺链页面版本号（' + next.abs + '）：' + ex2.versions.join(' / '))
+                if (Array.isArray(ex2.tables)) {
+                  for (const rows of ex2.tables.slice(0, 1)) {
+                    const head = rows[0]
+                    const useful = rows.slice(1).filter((r) => /v?\d+/.test(r)).slice(0, 8)
+                    if (useful.length) {
+                      lines.push('[S0] 顺链页面表格（表头：' + head + '）：')
+                      useful.forEach((r) => lines.push('    ' + r))
+                    }
+                  }
+                }
                 ex2.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 顺链页面原文：' + c))
                 if (!Array.isArray(ex2.links) || ex2.links.length === 0) break
                 frontier = ex2.links

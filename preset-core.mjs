@@ -299,8 +299,10 @@ const VERSION_SOURCE_SLUGS = {
   python: ['python'],
   rust: ['rust'],
   go: ['go', 'golang'],
-  java: ['java', 'jdk'],
-  docker: ['docker', 'docker-engine'],
+  // slug 必须和站点上真实存在的页面一致：实测 `java` 是 301 跳到 tags 页、
+  // `docker` 是 404，而 `oracle-jdk` / `docker-engine` 都是 200。
+  'oracle-jdk': ['java', 'jdk', 'oracle-jdk'],
+  'docker-engine': ['docker', 'docker-engine', 'docker ce'],
   kubernetes: ['kubernetes', 'k8s'],
   postgresql: ['postgresql', 'postgres'],
   mysql: ['mysql'],
@@ -805,7 +807,9 @@ export function apply(ctx, config = {}) {
         if (slug) {
           const feedUrl = 'https://endoflife.date/' + slug
           const feed = await fetchExcerpt(feedUrl, { timeoutMs: opts.fetchTimeoutMs, maxChars: 600 })
-          if (feed) {
+          // 只有真的抽到版本号才登记为来源：404/跳转页也能返回正文，
+          // 那种页面不能进来源表，否则模型会引用一个没有内容的域名。
+          if (feed && Array.isArray(feed.versions) && feed.versions.length) {
             const tag = 'S' + (refTable.length + 1)
             refTable.push({ tag, url: feedUrl, title: 'endoflife.date/' + slug })
             refs.push('[' + tag + '] ' + feedUrl)

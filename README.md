@@ -33,6 +33,7 @@
 > 搜索接线后对照组确实会搜了（平均 2.5 次/轮），但仍搜不出正确答案；引用约束 V1 组 PASS 全为 0。
 >
 > - 🖼 **安装验证（Windows + Debian 截图）** → [docs/install-verify](docs/install-verify/README.md)
+> - 🧾 **下一步待办（含证据）** → [NEXT.md](NEXT.md)
 > - 🧭 **当前状态速览** → [STATUS.md](STATUS.md)
 > - 📊 **最新 Benchmark 报告** → [给模型一句可直接落笔的话：A1 3/3 全对（2026-11-09）](benchmark/history/2026-11-09__v0.6.2-beta.1__quotable-line/REPORT.md)
 

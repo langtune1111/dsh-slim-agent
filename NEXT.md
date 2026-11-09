@@ -7,7 +7,9 @@
 ## P0 现在真正卡住的地方：模型不写引用
 
 **证据（0.6.3-beta.2，6 次单跑）**
-- **D1**：事实全对，正文分析也对，但 `cited_domains` 是**空的**——来源写成了散文，没有 `[S1]`。
+- **D1**：事实全对，正文分析也对，但 `calls` 里**没有 `final_answer`**（`['read','web_search']` 收尾），
+  所以自动回填来源那段代码根本没跑，`cited_domains` 为空。
+- **B1**：`web_search` 连调四次（`agent_requests` 5），重复检索白耗时间。
 - **B3**：答案对（1.99.1 / 2026-10-15），推理里引了 `[S0] blog.rust-lang.org`，
   最终来源只写了 `[S5] endoflife.date`，跨源核验不成立。
 - **B1**：把镜像站 `golang.smalljerry.cn` 当成「Go 官网」引用了。

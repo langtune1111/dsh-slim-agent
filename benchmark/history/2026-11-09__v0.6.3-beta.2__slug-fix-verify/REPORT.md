@@ -27,13 +27,19 @@
 ### 3.1 失败点已经从「找不到」挪到「不写引用」
 
 - **D1**：事实全对（`facts_ok [True]`），正文把 v24.11.0 和 v26.13.0 都分析对了，
-  但 `cited_domains` 是**空的**——模型把来源写成了散文（「from v24 LTS cycle, released May 6, 2025」），
-  没有写 `[S1]` 这种编号，判分直接零。
+  但 `cited_domains` 是**空的**。原因不是"写错引用"，是 **`calls` 里根本没有 `final_answer`**
+  （`['read','web_search']` 就结束了）——模型直接用散文收尾，绕过了那个会自动回填来源的工具。
+  对比 A1/B3/A2 的 `calls` 都以 `final_answer` 结尾，`final` 也带 `[FINAL]` 前缀。
 - **B3**：答案对（1.99.1 / 2026-10-15），推理里明明引了 `[S0] blog.rust-lang.org`，
   但最终只把 `[S5] endoflife.date` 写进了来源，`cited_domains` 只有一个域名，跨源核验不成立。
 
-**说明**：补抓版本页这一步是有效的（A1、B3、A2 都拿到了 `endoflife.date`），
-现在的瓶颈是**模型不把编号写进最终答复**。
+**说明**：补抓版本页这一步是有效的（A1、B3、A2 都拿到了 `endoflife.date`）。
+现在的瓶颈分成两半：**一半是绕过了 `final_answer`（D1）**，
+**一半是进了 `final_answer` 但只填一个编号（B3）**。
+
+### 3.3 重复检索
+B1 的 `calls` 是 `['web_search','web_search','web_search','web_search','final_answer']`——
+同一类查询连搜四次，`agent_requests` 到 5，这是它 137 s 之外另一个耗时来源。
 
 ### 3.2 镜像站被当成官网
 

@@ -1064,7 +1064,8 @@ export function apply(ctx, config = {}) {
       const key = bucketOf(context?.agent?.session ?? context?.agent)
       const userText = lastUserText.get(key) || ''
       const timeSensitive = /最新|当前|现在|目前|今天|latest|current|now|today|版本号|版本|version|release/i.test(userText)
-      if (timeSensitive && opts.intentRouter !== false) {
+      const alreadySearched = (searchBudget.get(key) ?? 0) > 0
+      if (timeSensitive && opts.intentRouter !== false && !alreadySearched) {
         const sections0 = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
         if (!sections0.some((sec) => sec?.name === ROUTER_SECTION.name)) sections0.push(ROUTER_SECTION)
         // contexts 会作为 user-role 快照注入，比 system 段更靠近轮次——实测系统段里
@@ -1146,7 +1147,12 @@ export function apply(ctx, config = {}) {
           }
           // 运行时上下文注入的那条 user/message 不是用户问题，忽略
           if (text && !/^Current runtime context\./.test(text)) {
-            lastUserText.set(bucketOf(session), text.slice(0, 600))
+            const lk = bucketOf(session)
+            lastUserText.delete(lk)
+            lastUserText.set(lk, text.slice(0, 600))
+            while (lastUserText.size > 64) {
+              lastUserText.delete(lastUserText.keys().next().value)
+            }
           }
         }
         else if (type === 'session/disposed') {
@@ -1154,6 +1160,7 @@ export function apply(ctx, config = {}) {
           searchBudget.delete(key)
           callBudget.delete(key)
           lastSources.delete(key)
+          lastUserText.delete(key)
         }
       } catch {}
     }))

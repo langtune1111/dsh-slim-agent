@@ -331,3 +331,21 @@ test('fetchExcerpt: 拒绝私网与非法协议', async () => {
     assert.equal(isFetchableUrl(u), true, u)
   }
 })
+
+test('final_answer: 正文里的 [S0] 在没有来源表时不崩、不产生 undefined', async () => {
+  const { ctx, registered } = makeCtx()
+  apply(ctx, {})
+  const fa = registered.find((t) => t.name === 'final_answer')
+  const res = await fa.execute({ answer: '结论是 1.99.1 [S0][S5]', sources: ['S5'] }, {})
+  assert.match(res.status, /^\[FINAL\]/)
+  assert.equal(/undefined/.test(res.status), false, '不得把 undefined 写进答复')
+})
+
+test('final_answer: sources 为空时也不会把空数组拼成 "来源: "', async () => {
+  const { ctx, registered } = makeCtx()
+  apply(ctx, {})
+  const fa = registered.find((t) => t.name === 'final_answer')
+  const res = await fa.execute({ answer: '没有外部来源的结论。' }, {})
+  assert.match(res.status, /^\[FINAL\]/)
+  assert.equal(/来源:\s*$/.test(res.status), false)
+})

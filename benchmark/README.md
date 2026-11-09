@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-09 | `0.6.4-beta.2` | GitHub releases 走 API：A3 2/2（并修正过期答案） | 2 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.4-beta.2__github-release/REPORT.md) · [数据](history/2026-11-09__v0.6.4-beta.2__github-release/data/) |
 | 2026-11-09 | `0.6.4-beta.1` | 正文里的 [Sn] 也算引用、[S0] 登记进来源表：6 次 5 PASS | 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.4-beta.1__citation-merge/REPORT.md) · [数据](history/2026-11-09__v0.6.4-beta.1__citation-merge/data/) |
 | 2026-11-09 | `0.6.3-beta.5` | 要求 sources 写两个域名：B3 2/3，三次事实全对 | 3 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.3-beta.5__cross-source/REPORT.md) · [数据](history/2026-11-09__v0.6.3-beta.5__cross-source/data/) |
 | 2026-11-09 | `0.6.3-beta.4` | 日期写 ISO：B3 事实 1/2→2/2（跨源仍差一个域名） | 1 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.3-beta.4__iso-dates/REPORT.md) · [数据](history/2026-11-09__v0.6.3-beta.4__iso-dates/data/) |

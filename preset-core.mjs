@@ -235,7 +235,12 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
       }
     } catch {}
 
-    const versions = Array.from(new Set(String(text).match(/v?\d+\.\d+\.\d+/g) || [])).slice(0, 6)
+    // 除了 1.2.3 这种，还要认 llama.cpp 的 b12223 风格构建号。
+    // b____ 只在明确知道目标是项目发布页时才收——普通网页里这种短串容易误命中。
+    const versions = Array.from(new Set([
+      ...(String(text).match(/v?\d+\.\d+\.\d+/g) || []),
+      ...(opts.buildTags ? (String(text).match(/\bb\d{4,6}\b/g) || []) : []),
+    ])).slice(0, 6)
     const dates = []
     try {
       const pats = [
@@ -294,6 +299,27 @@ export async function fetchExcerpt(rawUrl, opts = {}) {
  * `endoflife.date` 这类版本跟踪站。但直接抓它是通的，所以这里在**已知产品**上
  * 主动补一次抓取，并把 URL 登记进来源表——多源核验题（B 类）靠它才有第二个域名。
  */
+/**
+ * 抓一个 JSON 接口（GitHub releases API 这类）。
+ * 只取需要的字段，避免把整个 body 扔给正则——release body 里的历史日期会把答案带偏。
+ */
+async function fetchReleaseJson(url, timeoutMs) {
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(Number(timeoutMs) || 8000),
+      headers: { 'user-agent': 'dsh-slim-agent', accept: 'application/vnd.github+json' },
+    })
+    if (!res.ok) return null
+    const j = await res.json()
+    const tag = String(j?.tag_name || '').trim()
+    const published = String(j?.published_at || '').slice(0, 10)
+    if (!tag) return null
+    return { tag, published }
+  } catch {
+    return null
+  }
+}
+
 const VERSION_SOURCE_SLUGS = {
   nodejs: ['nodejs', 'node', 'node.js'],
   python: ['python'],
@@ -313,6 +339,70 @@ const VERSION_SOURCE_SLUGS = {
   php: ['php'],
   ruby: ['ruby'],
   laravel: ['laravel'],
+}
+
+/**
+ * 项目 → 官方发布页。
+ *
+ * 版本跟踪站（endoflife.date）覆盖的是语言/运行时；像 llama.cpp 这种
+ * 项目型的问题，搜索后端只会给百科和知乎，官方发布页得自己去抓。
+ * 这里只放"仓库地址稳定"的常见项目，抓不到就跳过。
+ */
+const PROJECT_RELEASE_PAGES = {
+  'llama.cpp': {
+    aliases: ['llama.cpp', 'llamacpp'],
+    api: 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest',
+    html: 'https://github.com/ggml-org/llama.cpp/releases',
+  },
+  ollama: {
+    aliases: ['ollama'],
+    api: 'https://api.github.com/repos/ollama/ollama/releases/latest',
+    html: 'https://github.com/ollama/ollama/releases',
+  },
+  vllm: {
+    aliases: ['vllm'],
+    api: 'https://api.github.com/repos/vllm-project/vllm/releases/latest',
+    html: 'https://github.com/vllm-project/vllm/releases',
+  },
+}
+
+function guessReleasePage(query) {
+  const q = String(query || '').toLowerCase()
+  for (const entry of Object.values(PROJECT_RELEASE_PAGES)) {
+    for (const alias of entry.aliases) {
+      const a = alias.replace(/[.]/g, '\\.')
+      if (new RegExp('(^|[^a-z0-9])' + a + '([^a-z0-9]|$)', 'i').test(q)) return entry
+    }
+  }
+  return null
+}
+
+/**
+ * 产品 → 官方版本页（能给出"版本号 + 发布日期"的页面）。
+ *
+ * 场景：C 类题问"两个产品的最新版本发布日相差几天"。一次搜索只覆盖一个产品，
+ * 第二个产品的日期必须去抓官方页——靠模型自己再检索一次基本不会发生。
+ */
+const OFFICIAL_VERSION_PAGES = {
+  nodejs: 'https://nodejs.org/en/about/previous-releases',
+  python: 'https://www.python.org/downloads/',
+  rust: 'https://blog.rust-lang.org/releases/latest',
+  go: 'https://go.dev/doc/devel/release',
+}
+
+const PRODUCT_LABELS = { nodejs: 'Node.js', python: 'Python', rust: 'Rust', go: 'Go' }
+
+/** 查询里出现了哪些产品（按 VERSION_SOURCE_SLUGS 的别名匹配）。 */
+function productsInQuery(query) {
+  const q = String(query || '').toLowerCase()
+  const hits = []
+  for (const [slug, aliases] of Object.entries(VERSION_SOURCE_SLUGS)) {
+    for (const alias of aliases) {
+      const a = alias.replace(/[.]/g, '\\.')
+      if (new RegExp('(^|[^a-z0-9])' + a + '([^a-z0-9]|$)', 'i').test(q)) { hits.push(slug); break }
+    }
+  }
+  return hits
 }
 
 function guessVersionSlug(query) {
@@ -827,12 +917,56 @@ export function apply(ctx, config = {}) {
         }
       }
 
+      // 项目型问题：直接抓官方发布页（搜索给的是百科/知乎，没有版本号）
+      if (opts.versionSourceFeeds !== false) {
+        const rel = guessReleasePage(query)
+        if (rel) {
+          // 实测：这台机器上 node fetch 抓 github.com 的 HTML 会超时（10s+ 失败），
+          // 但 api.github.com 1 秒内就返回；而且 release body 里塞满历史日期，
+          // 用正则刮正文会抓错日期，所以这里直接解析 JSON 字段。
+          const rj = await fetchReleaseJson(rel.api, opts.fetchTimeoutMs)
+          if (rj && rj.tag) {
+            const tag = 'S' + (refTable.length + 1)
+            refTable.push({ tag, url: rel.html, title: '发布页 ' + rel.html })
+            refs.push('[' + tag + '] ' + rel.html)
+            lines.push('[' + tag + '] 官方发布页（' + rel.html + '）：最新版本号 ' + rj.tag)
+            if (rj.published) {
+              lines.push('[' + tag + '] 官方发布页 · 发布日期：' + rj.published)
+              lines.push('[' + tag + '] 可直接引用：最新发布版为 ' + rj.tag + '，发布日期 ' + rj.published + '。')
+            }
+          }
+        }
+      }
+
+      // 多产品问题：把每个产品的官方版本页都抓一遍（最多两个），
+      // 否则模型只有一半的日期，算出来的差值必然是错的。
+      if (opts.versionSourceFeeds !== false) {
+        const prods = productsInQuery(query).filter((p) => OFFICIAL_VERSION_PAGES[p])
+        if (prods.length >= 2) {
+          for (const p of prods.slice(0, 2)) {
+            const url = OFFICIAL_VERSION_PAGES[p]
+            if (!url || refTable.some((r) => r.url === url)) continue
+            const ex3 = await fetchExcerpt(url, { timeoutMs: opts.fetchTimeoutMs, maxChars: 500 })
+            if (!ex3) continue
+            const tag = 'S' + (refTable.length + 1)
+            refTable.push({ tag, url, title: (PRODUCT_LABELS[p] || p) + ' 官方版本页' })
+            refs.push('[' + tag + '] ' + url)
+            if (ex3.versions.length) {
+              lines.push('[' + tag + '] ' + (PRODUCT_LABELS[p] || p) + ' 官方版本页 · 版本号：' + ex3.versions.slice(0, 3).join(' / '))
+            }
+            if (Array.isArray(ex3.dates) && ex3.dates.length) {
+              lines.push('[' + tag + '] ' + (PRODUCT_LABELS[p] || p) + ' 官方版本页 · 日期：' + ex3.dates.slice(0, 5).join(' / '))
+            }
+          }
+        }
+      }
+
       // 抓首条正文做确定性抽取（不依赖模型理解摘要）
       if (opts.fetchTopResult) {
         const pick = items.find((it) => /nodejs\.org|rust-lang\.org|python\.org|go\.dev|github\.com|wikipedia\.org/.test(String(it.url || ''))) || items[0]
         const target = String(pick?.url || '')
         if (/^https?:\/\//.test(target)) {
-          const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars })
+          const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars, buildTags: !!guessReleasePage(query) })
           if (ex) {
             // [S0] 是"直接抓到的正文"。模型经常在正文里引 [S0]，但来源表里没有它，
             // 展开时就被丢掉——于是引用域名空着。这里把它也登记进来。

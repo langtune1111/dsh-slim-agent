@@ -2,13 +2,13 @@
 
 面向消费级显卡本地小模型（1.7B–8B）与短上下文（4K–8K）环境的 DeepSeek Harness (DSH) 预设插件。通过“窄主代理 + 隔离子代理”的分工架构，在降低主窗口上下文开销的同时，提供受控的联网搜索与子代理多步研究能力。
 
-[![Version](https://img.shields.io/badge/version-0.6.4--beta.1-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
+[![Version](https://img.shields.io/badge/version-0.6.4--beta.2-orange.svg)](https://github.com/langtune1111/dsh-slim-agent/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.1%20(0.2.1--rc.5%20verified)-blue.svg)](https://github.com/deepseek-ai/deepseek-harness)
 [![CI](https://github.com/langtune1111/dsh-slim-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/langtune1111/dsh-slim-agent/actions)
 
 > ⚠️ **项目状态与环境说明**
-> - 当前版本：`0.6.4-beta.1`（答复通道已打通，待全面测试）。**0.3.0 起移除 `task_complete`**（其 `concludeTurn()` 会丢弃最终答复，实测 3 次调用 3 次空答复），主代理工具面由 6 降为 5，并新增 `tools/pre-execute` 执行期白名单硬闸。
+> - 当前版本：`0.6.4-beta.2`（答复通道已打通，待全面测试）。**0.3.0 起移除 `task_complete`**（其 `concludeTurn()` 会丢弃最终答复，实测 3 次调用 3 次空答复），主代理工具面由 6 降为 5，并新增 `tools/pre-execute` 执行期白名单硬闸。
 > - 上一版 `0.2.3-beta.1` 已在 **DSH desktop 0.2.1-rc.5 (Windows / 本地环境)** 上完成端到端联调与原生 `startActivation` 验证。
 > - 本项目不包含虚构的性能跑分数字；固定开销数据均由透明脚本测量或经验估算得到（见第四节「开源复现指南」）。
 > - `bash` 工具默认要求宿主提供沙箱接口 (`ctx.subprocess.spawn`)；在无沙箱的宿主上会明确报错拒绝执行。
@@ -35,7 +35,7 @@
 > - 🖼 **安装验证（Windows + Debian 截图）** → [docs/install-verify](docs/install-verify/README.md)
 > - 🧾 **下一步待办（含证据）** → [NEXT.md](NEXT.md)
 > - 🧭 **当前状态速览** → [STATUS.md](STATUS.md)
-> - 📊 **最新 Benchmark 报告** → [引用按正文合并：A1 2/2、D1 2/2（2026-11-09）](benchmark/history/2026-11-09__v0.6.4-beta.1__citation-merge/REPORT.md)
+> - 📊 **最新 Benchmark 报告** → [A3 打穿：GitHub releases 走 API，2/2（2026-11-09）](benchmark/history/2026-11-09__v0.6.4-beta.2__github-release/REPORT.md)
 
 
 在短上下文（4K / 8K）下运行全功能 Agent 时，数十个工具定义与长篇网页正文极易占满上下文窗口，并导致小模型产生工具选择幻觉。本插件采用“窄主代理 + 宽子代理”的分工模型：

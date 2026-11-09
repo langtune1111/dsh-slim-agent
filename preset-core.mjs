@@ -491,6 +491,8 @@ export function apply(ctx, config = {}) {
     fetchTimeoutMs: Number(config.fetchTimeoutMs) || 8000,
     fetchMaxChars: Number(config.fetchMaxChars) || 1200,
     fetchFollowLinks: config.fetchFollowLinks !== false,
+    // 意图路由：检测到时新词就在系统提示里要求先检索（默认开）
+    intentRouter: config.intentRouter !== false,
     // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
     convergeMode: ['off', 'budget', 'hardCap'].includes(config.convergeMode) ? config.convergeMode : 'off',
     // 最终答复改由工具提交：1.7B 只会可靠地产生工具调用，不会可靠地写自然语言结论
@@ -534,6 +536,13 @@ export function apply(ctx, config = {}) {
     callBudget.delete(key)
   }
 
+  /* 最近一条用户消息：用来判断这一轮是不是"时效性事实"问题。
+   * 实测（2026-11-09）：同一道「Node.js 最新 LTS 版本与代号」，只要题面里明说
+   * 「请先使用 web_search 检索」，Qwen 4B 就能 4/4 全对；不说就 0/4——它会把
+   * 空工作区当成文件任务，反复 bash ls。所以这里做一个确定性的**意图路由**：
+   * 检测到时新词，就在系统提示里明确要求先检索。 */
+  const lastUserText = new Map()
+
   /* 最近一次检索的来源表：bucket -> [{tag,url,title}]，供 final_answer 回填真实 URL。 */
   const lastSources = new Map()
 
@@ -554,6 +563,19 @@ export function apply(ctx, config = {}) {
   /* 收敛后必须让模型停止"调用工具"的表达方式。
    * 实测：工具面清空后，1.7B 仍会把 <tool_call>…</tool_call> 当文本写出来，
    * 那段标记会变成"最终答复"，看着非空、其实不是答案。 */
+  /* 时效性问题：明确要求先检索，避免把空工作区当文件任务。 */
+  const ROUTER_SECTION = {
+    name: 'slim:intent-router',
+    interpolate: false,
+    text: [
+      '【本轮是时效性事实问题】',
+      '这类问题的答案在外部网页上，不在本地工作区。',
+      '请先调用 web_search 检索，再依据检索结果作答；',
+      '不要用 bash 反复 ls/find 找文件——工作区里没有这类答案。',
+      '关键事实请至少核对两个不同域名的来源；只找到一个来源时，明确说明这一点。',
+    ].join(''),
+  }
+
   const CONVERGE_SECTION = {
     name: 'slim:converged',
     interpolate: false,
@@ -788,6 +810,33 @@ export function apply(ctx, config = {}) {
                     }
                   }
                 }
+                // 确定性配对：首页给完整版本号（v26.13.0），发布页表格给代号（v26 → Lithium）。
+                // 两个事实分散在两页时，小模型几乎不会自己合并，这里替它拼好。
+                try {
+                  const cands = (ex.versions || []).filter((v) => /^v?\d{1,2}\.\d+\.\d+/.test(v))
+                  if (cands.length && Array.isArray(ex2.tables)) {
+                    let joined = false
+                    for (const fullVer of cands.slice(0, 4)) {
+                      const major = String(fullVer).replace(/^v/i, '').split('.')[0]
+                      for (const rows of ex2.tables) {
+                        for (const row of rows) {
+                          const cells = row.split('|').map((c) => c.trim())
+                          if (cells.length < 2) continue
+                          const m = cells[0].match(/^v?\s*(\d{1,3})$/)
+                          if (!m || m[1] !== major) continue
+                          const code = cells[1].replace(/^-+$/, '').trim()
+                          if (code) {
+                            lines.push('[S0] 版本与代号（确定性配对）：' + fullVer + ' → 代号 ' + code)
+                            joined = true
+                          }
+                          break
+                        }
+                        if (joined) break
+                      }
+                      if (joined) break
+                    }
+                  }
+                } catch {}
                 ex2.contexts.slice(0, 2).forEach((c) => lines.push('[S0] 顺链页面原文：' + c))
                 if (!Array.isArray(ex2.links) || ex2.links.length === 0) break
                 frontier = ex2.links
@@ -1013,6 +1062,24 @@ export function apply(ctx, config = {}) {
       const isChild = header !== undefined && (header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0)
       if (isChild) return assembled
       const key = bucketOf(context?.agent?.session ?? context?.agent)
+      const userText = lastUserText.get(key) || ''
+      const timeSensitive = /最新|当前|现在|目前|今天|latest|current|now|today|版本号|版本|version|release/i.test(userText)
+      if (timeSensitive && opts.intentRouter !== false) {
+        const sections0 = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
+        if (!sections0.some((sec) => sec?.name === ROUTER_SECTION.name)) sections0.push(ROUTER_SECTION)
+        // contexts 会作为 user-role 快照注入，比 system 段更靠近轮次——实测系统段里
+        // 说一遍模型照旧不去检索，用户侧快照才是有效位置。
+        const contexts0 = Array.isArray(assembled.contexts) ? assembled.contexts.slice() : []
+        if (!contexts0.some((c) => c?.name === ROUTER_SECTION.name)) {
+          contexts0.push({ name: ROUTER_SECTION.name, text: ROUTER_SECTION.text, interpolate: false })
+        }
+        const base = Array.isArray(assembled.tools) ? assembled.tools : []
+        if (isConverged(key)) {
+          const tools0 = base.filter((t) => t?.name === 'final_answer')
+          return { ...assembled, tools: tools0, sections: sections0, contexts: contexts0 }
+        }
+        return { ...assembled, sections: sections0, contexts: contexts0 }
+      }
       if (isConverged(key)) {
         const sections = Array.isArray(assembled.sections) ? assembled.sections.slice() : []
         if (!sections.some((sec) => sec?.name === CONVERGE_SECTION.name)) sections.push(CONVERGE_SECTION)
@@ -1066,6 +1133,22 @@ export function apply(ctx, config = {}) {
       try {
         const type = event?.type ?? event?.name
         if (type === 'turn/start') resetTurn(session)
+        else if (type === 'user/message') {
+          // 事件形状实测：{ type:'user/message', data:{ content:[{type:'text',text}], ... } }
+          const d = event?.data ?? {}
+          let text = ''
+          if (Array.isArray(d.content)) {
+            text = d.content.map((b) => (b && b.type === 'text' ? String(b.text || '') : '')).join(' ').trim()
+          } else if (typeof d.content === 'string') {
+            text = d.content
+          } else if (typeof d.text === 'string') {
+            text = d.text
+          }
+          // 运行时上下文注入的那条 user/message 不是用户问题，忽略
+          if (text && !/^Current runtime context\./.test(text)) {
+            lastUserText.set(bucketOf(session), text.slice(0, 600))
+          }
+        }
         else if (type === 'session/disposed') {
           const key = bucketOf(session)
           searchBudget.delete(key)

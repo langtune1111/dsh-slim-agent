@@ -1,0 +1,160 @@
+{
+  "name": "held-out",
+  "purpose": "从未用于调参的对照题；产品全部在硬编码表之外",
+  "snapshot_at": "2026-11-14",
+  "tasks": [
+    {
+      "task_id": "H-A1",
+      "category": "A_realtime",
+      "heldout": true,
+      "user_prompt": "Bun 当前最新版本号是多少？发布日期是哪天？",
+      "expected_answer": "bun-v1.4.4；2026-10-22",
+      "required_facts": [
+        "1\\.4\\.4",
+        "2026-10-22"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "api.github.com/repos/oven-sh/bun/releases/latest"
+    },
+    {
+      "task_id": "H-A2",
+      "category": "A_realtime",
+      "heldout": true,
+      "user_prompt": "Deno 当前最新稳定版是多少？哪天发布的？",
+      "expected_answer": "2.9.8；2026-10-21",
+      "required_facts": [
+        "2\\.9\\.8",
+        "2026-10-21"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "api.github.com/repos/denoland/deno/releases/latest"
+    },
+    {
+      "task_id": "H-A3",
+      "category": "A_realtime",
+      "heldout": true,
+      "user_prompt": "Terraform 最新版本号是多少？哪天发布的？",
+      "expected_answer": "v1.17.2；2026-11-11",
+      "required_facts": [
+        "1\\.17\\.2",
+        "2026-11-11"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "api.github.com/repos/hashicorp/terraform/releases/latest"
+    },
+    {
+      "task_id": "H-B1",
+      "category": "B_crosssource",
+      "heldout": true,
+      "user_prompt": "Caddy 当前最新稳定版是多少？请用两个独立来源确认，并说明是哪两个。",
+      "expected_answer": "v2.11.9；官方 GitHub 发布页 + caddyserver.com",
+      "required_facts": [
+        "2\\.11\\.9"
+      ],
+      "required_sources": [
+        "github.com",
+        "caddyserver.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 2
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "api.github.com/repos/caddyserver/caddy/releases/latest"
+    },
+    {
+      "task_id": "H-B2",
+      "category": "B_crosssource",
+      "heldout": true,
+      "user_prompt": "SQLite 当前最新版本号是多少？请给出该版本号。",
+      "expected_answer": "3.54.1",
+      "required_facts": [
+        "3\\.54\\.1"
+      ],
+      "required_sources": [
+        "sqlite.org"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "sqlite.org/download.html PRODUCT 行"
+    },
+    {
+      "task_id": "H-C1",
+      "category": "C_multihop",
+      "heldout": true,
+      "user_prompt": "Elixir 最新稳定版与 Zig 最新稳定版的发布日期相差几天？请给出计算过程。",
+      "expected_answer": "Elixir 1.20.5 (2026-10-29) 与 Zig 0.15.1 (2025-08-29) 相差 426 天",
+      "required_facts": [
+        "\\b426\\b"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "两条 GitHub releases/latest + 日期差"
+    },
+    {
+      "task_id": "H-D1",
+      "category": "D_local_plus_web",
+      "heldout": true,
+      "user_prompt": "读取本地文件 fixtures/HD1.md，里面记录了本项目的 Bun 版本；请联网确认 Bun 当前最新版本，并判断项目版本落后多少。",
+      "expected_answer": "项目 1.2.0；最新 bun-v1.4.4（2026-10-22）",
+      "required_facts": [
+        "1\\.4\\.4",
+        "1\\.2\\.0"
+      ],
+      "required_sources": [
+        "github.com"
+      ],
+      "evaluation_rules": {
+        "must_call_search": true,
+        "min_sources": 1
+      },
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "fixture 内固定 1.2.0 + GitHub latest"
+    },
+    {
+      "task_id": "H-T1",
+      "category": "T_agent_basic",
+      "heldout": true,
+      "user_prompt": "在当前目录创建 hprime.py：判断输入的正整数是否为素数，是则打印 prime，否则打印 composite；然后运行 101 和 100。",
+      "expected_answer": "101 -> prime；100 -> composite",
+      "required_facts": [
+        "prime",
+        "composite"
+      ],
+      "required_sources": [],
+      "evaluation_rules": {},
+      "snapshot_at": "2026-11-14",
+      "snapshot_cmd": "纯本地，无需外部数据"
+    }
+  ]
+}

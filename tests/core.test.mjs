@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { classifySource, guessYear, AsyncSemaphore } from '../preset-core.mjs'
+import { classifySource, guessYear, AsyncSemaphore, trimBudgetMap, MAX_BUDGET_KEYS, pickFetchTarget } from '../preset-core.mjs'
 
 test('classifySource: 区分源码仓库、社区讨论、文档站、百科', () => {
   assert.equal(classifySource('https://github.com/nodejs/node/releases/tag/v22.0.0'), '[源码仓库]')
@@ -43,4 +43,57 @@ test('AsyncSemaphore: release 多余调用不会把计数打成负数', () => {
   sem.release()
   sem.release()
   assert.equal(sem.current, 0)
+})
+
+test('AsyncSemaphore: release 后同一 tick 内 acquire 不得超发（交接式许可）', async () => {
+  // 复现微任务竞态：A 持锁 → B 排队 → A.release() → 同一 tick 里 C 抢锁。
+  // 旧实现 release() 先把 current 减到 0 再唤醒 B，B 在微任务里才 +=1，
+  // 这中间 C 会直接抢到许可，随后 B 醒来再 +=1 → current 变成 2 > capacity。
+  const sem = new AsyncSemaphore(1)
+  let active = 0
+  let peak = 0
+  const job = async () => {
+    await sem.acquire()
+    active += 1
+    peak = Math.max(peak, active)
+    await new Promise((r) => setImmediate(r))
+    active -= 1
+    sem.release()
+  }
+
+  await sem.acquire() // A 拿住许可
+  const b = job() // B 排队
+  await Promise.resolve() // 让 B 进入 waiters
+  sem.release() // A 交还许可：旧实现此刻把 current 减到 0，B 还在微任务里没醒来
+  const c = job() // C 在同一个 tick 里同步抢锁 —— 竞态窗口就在这一行
+
+  await Promise.race([
+    Promise.all([b, c]),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('semaphore deadlock')), 2000)),
+  ])
+  assert.equal(peak, 1, '并发峰值必须是 1，实测 ' + peak)
+  assert.equal(sem.current, 0, '全部结束计数应归零，实测 ' + sem.current)
+})
+
+test('trimBudgetMap: 超过上限按插入顺序淘汰最旧的 key（预算表不会无限增长）', () => {
+  const m = new Map()
+  for (let i = 0; i < MAX_BUDGET_KEYS + 6; i += 1) m.set('s' + i, i)
+  trimBudgetMap(m)
+  assert.equal(m.size, MAX_BUDGET_KEYS)
+  assert.equal(m.has('s0'), false, '最旧的 key 应被淘汰')
+  assert.equal(m.has('s' + (MAX_BUDGET_KEYS + 5)), true, '最新的 key 必须保留')
+})
+
+test('pickFetchTarget: 通用打分降级聚合站，不依赖产品白名单', () => {
+  const items = [
+    { url: 'https://blog.csdn.net/x/article/details/1', title: 'csdn' },
+    { url: 'https://www.runoob.com/x.html', title: 'runoob' },
+    { url: 'https://example-unknown-tool.dev/releases', title: 'releases' },
+  ]
+  assert.equal(pickFetchTarget(items).url, 'https://example-unknown-tool.dev/releases')
+  // 只有聚合站时退化为第一条，不乱挑
+  const onlyBad = [{ url: 'https://blog.csdn.net/a' }, { url: 'https://zhuanlan.zhihu.com/p/1' }]
+  assert.equal(pickFetchTarget(onlyBad).url, 'https://blog.csdn.net/a')
+  // 空列表不炸
+  assert.equal(pickFetchTarget([]), undefined)
 })

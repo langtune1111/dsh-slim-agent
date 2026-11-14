@@ -149,6 +149,29 @@ export function isFetchableUrl(rawUrl) {
   return true
 }
 
+/**
+ * 从搜索结果里挑"最值得抓正文"的那一条（通用规则，不看产品名）。
+ *
+ * 旧实现是一张写死域名的白名单（nodejs.org / rust-lang.org / …），
+ * 等于把知识表渗进了抓取逻辑；未知产品永远拿不到正文。
+ */
+export function pickFetchTarget(items = [], data = DEFAULT_VERSION_SOURCES) {
+  const demoted = (data && data.demotedDomains) || []
+  const scored = items.map((it, i) => {
+    const url = String(it?.url || '')
+    let host = ''
+    try { host = new URL(url).hostname.toLowerCase() } catch {}
+    let score = 0
+    if (!/^https?:\/\//.test(url)) score -= 10
+    if (demoted.some((d) => host === d || host.endsWith('.' + d))) score -= 5
+    if (/releases?(\/|$)|download|versions?|changelog|previous-releases|about/i.test(url)) score += 2
+    if (/^https?:\/\//.test(url)) score += 1
+    return { it, i, score }
+  })
+  scored.sort((a, b) => b.score - a.score || a.i - b.i)
+  return scored.length ? scored[0].it : undefined
+}
+
 /* 抓取结果缓存：同一次会话里模型常常对同一个页面搜两三次，
  * 每次都重新抓（最坏 3 跳、每跳 8 秒）纯属浪费。按 URL 缓存 5 分钟。 */
 const FETCH_CACHE = new Map()
@@ -320,7 +343,17 @@ async function fetchReleaseJson(url, timeoutMs) {
   }
 }
 
-const VERSION_SOURCE_SLUGS = {
+/**
+ * 版本源知识表（唯一一处出现产品名的数据段）。
+ *
+ * 注意：这张表是"知识注入"，不是通用能力。它的存在只是为了在搜索后端不可用时
+ * 还能直接抓官方页；任何不是这里列出的产品，都应该走下面的通用打分路径。
+ * 用 `config.versionSources = { versionTrackers: {...} }` 可以整表替换/追加。
+ * 关闭全部特化行为：`config.versionSources = 'off'`。
+ */
+const DEFAULT_VERSION_SOURCES = {
+  /* 产品 → endoflife.date 的 slug（值是"能在查询里匹配到该产品"的别名） */
+  versionTrackers: {
   nodejs: ['nodejs', 'node', 'node.js'],
   python: ['python'],
   rust: ['rust'],
@@ -339,16 +372,9 @@ const VERSION_SOURCE_SLUGS = {
   php: ['php'],
   ruby: ['ruby'],
   laravel: ['laravel'],
-}
-
-/**
- * 项目 → 官方发布页。
- *
- * 版本跟踪站（endoflife.date）覆盖的是语言/运行时；像 llama.cpp 这种
- * 项目型的问题，搜索后端只会给百科和知乎，官方发布页得自己去抓。
- * 这里只放"仓库地址稳定"的常见项目，抓不到就跳过。
- */
-const PROJECT_RELEASE_PAGES = {
+  },
+  /* 项目 → 官方发布页（抓 API，引用给人类可读页面） */
+  projectReleases: {
   'llama.cpp': {
     aliases: ['llama.cpp', 'llamacpp'],
     api: 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest',
@@ -364,7 +390,28 @@ const PROJECT_RELEASE_PAGES = {
     api: 'https://api.github.com/repos/vllm-project/vllm/releases/latest',
     html: 'https://github.com/vllm-project/vllm/releases',
   },
+  },
+  /* 产品 → 官方版本页（多产品问题用） */
+  officialVersionPages: {
+  nodejs: 'https://nodejs.org/en/about/previous-releases',
+  python: 'https://www.python.org/downloads/',
+  rust: 'https://blog.rust-lang.org/releases/latest',
+  go: 'https://go.dev/doc/devel/release',
+  },
+  /* 产品 → 展示名 */
+  labels: { nodejs: 'Node.js', python: 'Python', rust: 'Rust', go: 'Go'   },
+  /* 通用路径：这些域名是聚合/教程站，抓它们基本拿不到官方事实，主动降级 */
+  demotedDomains: [
+    'csdn.net', 'zhihu.com', 'baidu.com', 'runoob.com', 'w3schools.com', 'jianshu.com',
+    'cnblogs.com', 'segmentfault.com', '51cto.com', 'launchnotes.com', 'tutorialspoint.com',
+  ],
 }
+
+const VERSION_SOURCE_SLUGS = DEFAULT_VERSION_SOURCES.versionTrackers
+const PROJECT_RELEASE_PAGES = DEFAULT_VERSION_SOURCES.projectReleases
+const OFFICIAL_VERSION_PAGES = DEFAULT_VERSION_SOURCES.officialVersionPages
+const PRODUCT_LABELS = DEFAULT_VERSION_SOURCES.labels
+
 
 function guessReleasePage(query) {
   const q = String(query || '').toLowerCase()
@@ -376,21 +423,6 @@ function guessReleasePage(query) {
   }
   return null
 }
-
-/**
- * 产品 → 官方版本页（能给出"版本号 + 发布日期"的页面）。
- *
- * 场景：C 类题问"两个产品的最新版本发布日相差几天"。一次搜索只覆盖一个产品，
- * 第二个产品的日期必须去抓官方页——靠模型自己再检索一次基本不会发生。
- */
-const OFFICIAL_VERSION_PAGES = {
-  nodejs: 'https://nodejs.org/en/about/previous-releases',
-  python: 'https://www.python.org/downloads/',
-  rust: 'https://blog.rust-lang.org/releases/latest',
-  go: 'https://go.dev/doc/devel/release',
-}
-
-const PRODUCT_LABELS = { nodejs: 'Node.js', python: 'Python', rust: 'Rust', go: 'Go' }
 
 /** 查询里出现了哪些产品（按 VERSION_SOURCE_SLUGS 的别名匹配）。 */
 function productsInQuery(query) {
@@ -567,14 +599,31 @@ export class AsyncSemaphore {
       this.current += 1
       return
     }
+    // 被 release() 直接唤醒 = 许可已经交接过来，计数保持不变，这里不能再 += 1。
     await new Promise((resolve) => this.waiters.push(resolve))
-    this.current += 1
   }
   release() {
-    this.current = Math.max(0, this.current - 1)
+    // 交接式释放：有等待者就把许可直接交给它，不先把 current 减到 0。
+    // 旧实现「减到 0 + 异步唤醒」之间存在微任务窗口，同一 tick 里新来的 acquire
+    // 会看到 current === 0 直接抢占，等待者醒来再 += 1 → current 超发到 2，
+    // 击穿 concurrencyLimit 的单并发保护（tests/core.test.mjs 有对应用例）。
     const next = this.waiters.shift()
-    if (next) next()
+    if (next) {
+      next()
+      return
+    }
+    this.current = Math.max(0, this.current - 1)
   }
+}
+
+/* ───────────────────────── 预算表容量 ───────────────────────── */
+
+/** 预算表最多记多少个会话；超出按插入顺序淘汰。宿主异常退出时 disposed 事件可能丢失。 */
+export const MAX_BUDGET_KEYS = 64
+
+export function trimBudgetMap(map, max = MAX_BUDGET_KEYS) {
+  while (map.size > max) map.delete(map.keys().next().value)
+  return map
 }
 
 /* ───────────────────────────── 子代理 ───────────────────────────── */
@@ -607,6 +656,8 @@ function extractReport(result) {
 export function apply(ctx, config = {}) {
   const opts = {
     concurrencyLimit: Number(config.concurrencyLimit) || 1,
+    // 等子代理 idle 的上限：超过就当它迷路了，放弃等待而不是永远占着信号量
+    subagentWaitMs: Number(config.subagentWaitMs) || 120000,
     searchEngine: config.searchEngine || 'auto',
     maxResults: Number(config.searchMaxResults) || 4,
     timeoutMs: Number(config.searchTimeoutMs) || 15000,
@@ -621,6 +672,13 @@ export function apply(ctx, config = {}) {
     fetchFollowLinks: config.fetchFollowLinks !== false,
     // 已知产品额外抓一次 endoflife.date（给多源核验题补第二个来源）
     versionSourceFeeds: config.versionSourceFeeds !== false,
+    // 总开关：'off' 时关掉全部"产品→站点"的硬编码路由，只走通用检索。
+    // 用途是量化「知识注入」对分数的贡献（tuned vs held-out 四组对照）。
+    versionSources: (config.versionSources === false || config.versionSources === 'off') ? 'off' : 'on',
+    // 知识表可整表替换：传对象就与默认表浅合并，传 'off' 则整体关闭
+    versionSourceData: (config.versionSources && typeof config.versionSources === 'object')
+      ? { ...DEFAULT_VERSION_SOURCES, ...config.versionSources }
+      : DEFAULT_VERSION_SOURCES,
     // 意图路由：检测到时新词就在系统提示里要求先检索（默认开）
     intentRouter: config.intentRouter !== false,
     // 强制收敛：'off' 保持 0.3.1 行为；'budget' 搜索超限后清空工具；'hardCap' 工具调用总量达上限后清空
@@ -680,12 +738,14 @@ export function apply(ctx, config = {}) {
     const key = budgetKey(exec)
     const next = (searchBudget.get(key) ?? 0) + 1
     searchBudget.set(key, next)
+    trimBudgetMap(searchBudget)
     return next
   }
   const bumpCallBudget = (exec) => {
     const key = budgetKey(exec)
     const next = (callBudget.get(key) ?? 0) + 1
     callBudget.set(key, next)
+    trimBudgetMap(callBudget)
     return next
   }
 
@@ -895,7 +955,7 @@ export function apply(ctx, config = {}) {
         lines.push('[' + tag + '] ' + classifySource(url) + ' ' + title + guessYear(title + ' ' + snippet) + ' — ' + (snippet || '无摘要') + '  <' + url + '>')
       }
       // 已知产品：额外抓一次 endoflife.date，补上"第二个来源"
-      if (opts.versionSourceFeeds !== false) {
+      if (opts.versionSources !== 'off' && opts.versionSourceFeeds !== false) {
         const slug = guessVersionSlug(query)
         if (slug) {
           const feedUrl = 'https://endoflife.date/' + slug
@@ -918,7 +978,7 @@ export function apply(ctx, config = {}) {
       }
 
       // 项目型问题：直接抓官方发布页（搜索给的是百科/知乎，没有版本号）
-      if (opts.versionSourceFeeds !== false) {
+      if (opts.versionSources !== 'off' && opts.versionSourceFeeds !== false) {
         const rel = guessReleasePage(query)
         if (rel) {
           // 实测：这台机器上 node fetch 抓 github.com 的 HTML 会超时（10s+ 失败），
@@ -932,7 +992,7 @@ export function apply(ctx, config = {}) {
             lines.push('[' + tag + '] 官方发布页（' + rel.html + '）：最新版本号 ' + rj.tag)
             if (rj.published) {
               lines.push('[' + tag + '] 官方发布页 · 发布日期：' + rj.published)
-              lines.push('[' + tag + '] 可直接引用：最新发布版为 ' + rj.tag + '，发布日期 ' + rj.published + '。')
+              lines.push('[' + tag + '] 发布版 ' + rj.tag + ' · 发布日期 ' + rj.published)
             }
           }
         }
@@ -940,7 +1000,7 @@ export function apply(ctx, config = {}) {
 
       // 多产品问题：把每个产品的官方版本页都抓一遍（最多两个），
       // 否则模型只有一半的日期，算出来的差值必然是错的。
-      if (opts.versionSourceFeeds !== false) {
+      if (opts.versionSources !== 'off' && opts.versionSourceFeeds !== false) {
         const prods = productsInQuery(query).filter((p) => OFFICIAL_VERSION_PAGES[p])
         if (prods.length >= 2) {
           for (const p of prods.slice(0, 2)) {
@@ -963,10 +1023,12 @@ export function apply(ctx, config = {}) {
 
       // 抓首条正文做确定性抽取（不依赖模型理解摘要）
       if (opts.fetchTopResult) {
-        const pick = items.find((it) => /nodejs\.org|rust-lang\.org|python\.org|go\.dev|github\.com|wikipedia\.org/.test(String(it.url || ''))) || items[0]
+        // 不再按产品名挑页面：改成通用打分（降级聚合/教程站、偏好 release/download 类路径）。
+      // 这样任何没被写进知识表的产品也走同一条路径。
+      const pick = pickFetchTarget(items, opts.versionSourceData) || items[0]
         const target = String(pick?.url || '')
         if (/^https?:\/\//.test(target)) {
-          const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars, buildTags: !!guessReleasePage(query) })
+          const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars, buildTags: opts.versionSources !== 'off' && !!guessReleasePage(query) })
           if (ex) {
             // [S0] 是"直接抓到的正文"。模型经常在正文里引 [S0]，但来源表里没有它，
             // 展开时就被丢掉——于是引用域名空着。这里把它也登记进来。
@@ -1033,7 +1095,7 @@ export function apply(ctx, config = {}) {
                           if (code) {
                             lines.push('[S0] 版本与代号（确定性配对）：' + fullVer + ' → 代号 ' + code)
                             // 再给一句可直接落笔的成句：小模型经常只抄版本、漏掉代号
-                            lines.push('[S0] 可直接引用：最新 LTS 版本为 ' + fullVer + '，代号 ' + code + '。')
+                            lines.push('[S0] 最新 LTS ' + fullVer + ' · 代号 ' + code)
                             joined = true
                           }
                           break
@@ -1236,11 +1298,31 @@ export function apply(ctx, config = {}) {
         if (agents && typeof agents.get === 'function') {
           const childAgent = agents.get(childId)
           if (childAgent && typeof childAgent.whenIdle === 'function') {
-            await childAgent.whenIdle()
-            const events = childAgent.session?.snapshotEvents?.(0) || []
-            const assistantMsgs = events.filter((e) => e.type === 'message' && e.data?.role === 'assistant')
-            const lastMsg = assistantMsgs[assistantMsgs.length - 1]
-            report = extractReport({ output: lastMsg?.data?.content || [] })
+            // 实测风险：whenIdle() 没有超时保护。子代理卡住时这里永远不返回，
+            // release() 在 finally 里就走不到，信号量会被永久占住，后续调用全部挂起。
+            // 所以用 race 兜一层：超时 / 被取消都只是"放弃等待"，不当成错误抛给主代理。
+            const idle = Promise.resolve().then(() => childAgent.whenIdle())
+            idle.then(() => {}, () => {}) // 自己吞掉 rejection，避免 unhandled
+            const outcome = await Promise.race([
+              idle.then(() => 'idle', () => 'error'),
+              new Promise((resolve) => {
+                const timer = setTimeout(() => resolve('timeout'), opts.subagentWaitMs)
+                const onAbort = () => { clearTimeout(timer); resolve('abort') }
+                if (exec?.signal && typeof exec.signal.addEventListener === 'function') {
+                  exec.signal.addEventListener('abort', onAbort, { once: true })
+                }
+                idle.then(() => clearTimeout(timer), () => clearTimeout(timer))
+              }),
+            ])
+            if (outcome === 'idle') {
+              const events = childAgent.session?.snapshotEvents?.(0) || []
+              const assistantMsgs = events.filter((e) => e.type === 'message' && e.data?.role === 'assistant')
+              const lastMsg = assistantMsgs[assistantMsgs.length - 1]
+              report = extractReport({ output: lastMsg?.data?.content || [] })
+            } else {
+              report = `[子代理 ${childId} 未在 ${opts.subagentWaitMs} ms 内完成（${outcome}），已放弃等待；`
+                + '需要的话请自行检索，或缩小任务范围后重新委派。]'
+            }
           }
         }
         if (!report) {

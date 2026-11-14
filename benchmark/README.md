@@ -17,6 +17,7 @@
 | 日期 | 版本 | 主题 | 规模 | 状态 | 链接 |
 |---|---|---|---|---|---|
 | 2026-11-04 | `0.3.0-beta.1` | 联网研究能力专项（7 arm × 15 题） | 180 次 | ✅ 已完成（根 README 当前指向此报告） | [报告](history/2026-11-03__v0.3.0-alpha.1__web-research/REPORT.md) · [总方案](history/2026-11-03__v0.3.0-alpha.1__web-research/PLAN-MASTER.md) |
+| 2026-11-14 | `0.6.5-beta.1` | 过拟合自查：四组对照，知识层 Δ=0；并修 3 处 P0 缺陷 | 44 次（单跑） | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-14__v0.6.4-beta.3__overfit-audit/REPORT.md) · [数据](history/2026-11-14__v0.6.4-beta.3__overfit-audit/data/) |
 | 2026-11-09 | `0.6.4-beta.2` | GitHub releases 走 API：A3 2/2（并修正过期答案） | 2 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.4-beta.2__github-release/REPORT.md) · [数据](history/2026-11-09__v0.6.4-beta.2__github-release/data/) |
 | 2026-11-09 | `0.6.4-beta.1` | 正文里的 [Sn] 也算引用、[S0] 登记进来源表：6 次 5 PASS | 6 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.4-beta.1__citation-merge/REPORT.md) · [数据](history/2026-11-09__v0.6.4-beta.1__citation-merge/data/) |
 | 2026-11-09 | `0.6.3-beta.5` | 要求 sources 写两个域名：B3 2/3，三次事实全对 | 3 次 | ✅ 已完成（**根 README 当前指向此报告**） | [报告](history/2026-11-09__v0.6.3-beta.5__cross-source/REPORT.md) · [数据](history/2026-11-09__v0.6.3-beta.5__cross-source/data/) |
@@ -58,3 +59,34 @@
 | [`tokenizer.mjs`](tokenizer.mjs) | 轻量分词估算 |
 | [`cases.json`](cases.json) | 标准评测用例定义 |
 | [`adapters/`](adapters/) | 基准专用搜索适配器：让无搜索的对组组用同源同范围的方式搜索 |
+
+## 实时题的真值必须每次刷新
+
+2026-11-14 复跑时发现：11-09 冻结的 6 个版本事实，**5 天内全部变了**。
+
+| 题 | 11-09 冻结值 | 11-14 实测值 |
+|---|---|---|
+| A1 Node LTS | v26.13.0 | v26.13.1（2026-11-11） |
+| A3 llama.cpp | v0.9.0（11-04） | v1.0.0（11-13） |
+| B3 Rust | 1.99.1 | 1.100.0（11-12） |
+| B2 PostgreSQL | 18.6 | 18.7（11-12） |
+| B1 Go | 1.27.3 | 1.27.4（11-10） |
+| C1 差值 | 19 | 17 |
+
+所以任何"实时题"在跑之前都要执行：
+
+```bash
+python3 /root/dsh-bench/bench2/refresh_groundtruth.py dataset.json
+```
+
+它按 `.bak` 之外的官方源（endoflife.date API / GitHub API / postgresql.org/versions.json /
+nodejs.org 页面）重写 `required_facts`，并记录 `snapshot_at` 与 `ground_truth_sources`。
+**on/off 两组用同一份刷新结果**，不偏向任何一侧。冻结答案的成绩不可跨天比较。
+
+## held-out 对照集
+
+`benchmark/dataset-heldout.json`：8 题，产品全部**不在**插件的知识表里
+（Bun / Deno / Terraform / Caddy / SQLite / Elixir / Zig / Astro）。
+
+纪律：**任何为单题做的改动，都必须在 held-out 上没有负作用**。
+报告里始终同时给两个数字：`tuned` 与 `held-out`。

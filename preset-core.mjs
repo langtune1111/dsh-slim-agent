@@ -1023,9 +1023,12 @@ export function apply(ctx, config = {}) {
 
       // 抓首条正文做确定性抽取（不依赖模型理解摘要）
       if (opts.fetchTopResult) {
-        // 不再按产品名挑页面：改成通用打分（降级聚合/教程站、偏好 release/download 类路径）。
-      // 这样任何没被写进知识表的产品也走同一条路径。
-      const pick = pickFetchTarget(items, opts.versionSourceData) || items[0]
+        // 实测（2026-11-14）：只留通用打分时，A1 会去抓 nodejs.cn 镜像、D1 引 CSDN，比白名单更差。
+      // 所以改成「官方域名优先，其余交给通用打分」——白名单是知识，但它确实在做实事。
+      const officialish = /nodejs\.org|rust-lang\.org|python\.org|go\.dev|github\.com|sqlite\.org|bun\.sh|deno\.com/
+      const pick = items.find((it) => officialish.test(String(it.url || '')))
+        || pickFetchTarget(items, opts.versionSourceData)
+        || items[0]
         const target = String(pick?.url || '')
         if (/^https?:\/\//.test(target)) {
           const ex = await fetchExcerpt(target, { timeoutMs: opts.fetchTimeoutMs, maxChars: opts.fetchMaxChars, buildTags: opts.versionSources !== 'off' && !!guessReleasePage(query) })
